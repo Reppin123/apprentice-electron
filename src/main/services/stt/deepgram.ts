@@ -1,4 +1,7 @@
 import WebSocket from 'ws'
+import { existsSync, readFileSync } from 'fs'
+import { homedir } from 'os'
+import { join } from 'path'
 
 // Deepgram Nova-3 streaming STT for push-to-talk / dictation. Talks the wire
 // protocol directly (same as the Python agent's calls/deepgram.py — no SDK):
@@ -10,12 +13,32 @@ import WebSocket from 'ws'
 //   • results:   {"type":"Results", channel:{alternatives:[{transcript}]},
 //                 is_final, speech_final}
 //
-// Credentials: DEEPGRAM_API_KEY env (dev), else DEEPGRAM_TOKEN_URL — a
+// Credentials — the SAME ladder as the agent (calls/config.py) plus the
+// shipped app's default: DEEPGRAM_API_KEY env → ~/.config/apprentice/
+// deepgram.key (first non-empty line) → DEEPGRAM_TOKEN_URL env → the
+// production token worker AgentProcessManager.swift:377 injects — a
 // Cloudflare Worker that mints short-lived grant tokens (the real key never
 // reaches the device). The worker answers POST (see calls/config.py); we try
 // POST then GET and inspect the JSON defensively for the token field.
 
 const ENDPOINT = 'wss://api.deepgram.com/v1/listen'
+// The keyless production path every install gets (mirrors the Swift shell's
+// isolated-track default).
+const DEFAULT_TOKEN_URL = 'https://apprentice-deepgram-token.akshitbansal1313.workers.dev'
+
+function keyFileKey(): string {
+  try {
+    const p = join(homedir(), '.config', 'apprentice', 'deepgram.key')
+    if (!existsSync(p)) return ''
+    const first = readFileSync(p, 'utf-8')
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0)
+    return first || ''
+  } catch {
+    return ''
+  }
+}
 const KEEPALIVE_MS = 5000
 /// BuddyDictationManager.defaultFinalTranscriptFallbackDelaySeconds — how
 /// long finish() waits for the flushed finals before giving up.
@@ -38,10 +61,9 @@ function pickToken(obj: unknown): string {
 /// (auth scheme, value): "Token <key>" from env, else "Bearer <jwt>" minted
 /// by the token endpoint. null → transcription unavailable.
 async function resolveAuth(): Promise<[string, string] | null> {
-  const key = process.env.DEEPGRAM_API_KEY?.trim()
+  const key = process.env.DEEPGRAM_API_KEY?.trim() || keyFileKey()
   if (key) return ['Token', key]
-  const url = process.env.DEEPGRAM_TOKEN_URL?.trim()
-  if (!url) return null
+  const url = process.env.DEEPGRAM_TOKEN_URL?.trim() || DEFAULT_TOKEN_URL
   for (const method of ['POST', 'GET'] as const) {
     try {
       const resp = await fetch(url, { method, signal: AbortSignal.timeout(10000) })
@@ -78,9 +100,11 @@ export class DeepgramSTT {
     this.onInterim = opts?.onInterim
   }
 
-  /** Any credential source configured? (Gate before capturing.) */
+  /** Any credential source configured? (Gate before capturing.) The default
+   *  token worker means this is effectively always true; a worker outage
+   *  surfaces as a start() failure, not a silent no-capture. */
   static hasCredentials(): boolean {
-    return !!(process.env.DEEPGRAM_API_KEY?.trim() || process.env.DEEPGRAM_TOKEN_URL?.trim())
+    return true
   }
 
   async start(): Promise<void> {

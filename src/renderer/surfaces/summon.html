@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice Summon</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Summon = a full-screen dim veil + a bottom-anchored 520px cluster: an opaque
+     #0A0B10 surface box on top, a persistent command "beam" below it. Faithful to
+     SummonManager.swift (the SHIPPED surface is opaque, no backdrop blur). */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  :root{ --accent:var(--indigo); }   /* strand hue when in a strand, else indigo */
+
+  /* Click-catcher for tap-outside-to-dismiss. The full-screen DIM only makes
+     sense when summon owns the whole screen (native modal); in the floating
+     web-host panel it paints a dark box, so keep it transparent. */
+  .veil{position:fixed;inset:0;background:transparent;opacity:0;transition:opacity .3s ease;}
+  .veil.on{opacity:1;}
+
+  .cluster{position:fixed;bottom:40px;left:50%;width:520px;
+    display:flex;flex-direction:column;gap:14px;
+    transform:translateX(-50%) translateY(26px) scale(.96);transform-origin:bottom center;
+    opacity:0;transition:opacity .44s cubic-bezier(.2,.8,.2,1),transform .44s cubic-bezier(.2,.8,.2,1);}
+  .cluster.on{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}
+
+  /* surface box — opaque, hue-tinted border + shadow, internal scroll */
+  /* fixed standard height (Swift's maxHeight 460) — the panel does NOT resize per
+     page; each page fills it and scrolls internally. */
+  .surface{background:var(--ground);border-radius:22px;border:1px solid color-mix(in srgb,var(--accent) 16%,transparent);
+    box-shadow:0 18px 36px rgba(0,0,0,.28);height:460px;overflow:hidden;display:flex;flex-direction:column;
+    transition:border-color .22s ease;}
+  .page{display:none;flex-direction:column;min-height:0;overflow:hidden;}
+  .page.on{display:flex;flex:1 1 auto;}
+  .scroll{overflow-y:auto;overflow-x:hidden;min-height:0;}
+
+  /* rejection / trouble notice — a quiet amber strip between surface and beam */
+  .notice{display:none;padding:12px 18px;background:var(--ground);border-radius:14px;
+    border:1px solid color-mix(in srgb,var(--amber) 28%,transparent);
+    font-size:12.5px;font-weight:300;color:var(--amber);}
+  .notice.on{display:block;}
+
+  /* beam — persistent composer below the surface */
+  .beam{display:flex;align-items:center;gap:13px;padding:16px 20px;background:var(--ground);
+    border-radius:18px;border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);
+    box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 28%,transparent);transition:border-color .22s ease,box-shadow .22s ease;}
+  .beam .orb{width:13px;height:13px;border-radius:50%;background:var(--accent);flex:0 0 auto;
+    filter:blur(1.5px);box-shadow:0 0 8px var(--accent);}
+  .beam input{flex:1 1 auto;background:none;border:0;outline:0;color:var(--ink);
+    font-family:var(--font);font-size:15px;font-weight:300;}
+  .beam input::placeholder{color:rgba(243,241,234,.30);}
+
+  /* ---- shared bits ---- */
+  .back{font-size:12px;font-weight:300;color:var(--dim);cursor:pointer;padding:15px 22px 0;display:inline-block;width:max-content;}
+  .sub{font-size:11px;font-weight:300;color:var(--faint);padding:8px 24px 4px;}
+  .empty{font-size:12.5px;font-weight:300;color:var(--faint);text-align:center;padding:40px 24px;}
+  .spin{width:10px;height:10px;border-radius:50%;border:1.5px solid rgba(255,255,255,.14);
+    border-top-color:var(--dim);animation:spin .8s linear infinite;flex:0 0 auto;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* breathing hue dot */
+  .bwrap{width:28px;height:28px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
+  .bhue{border-radius:50%;filter:blur(6px);}
+  .bhue.active{width:26px;height:26px;animation:breathe 2.4s ease-in-out infinite;--b0:.85;--b1:.95;}
+  .bhue.needs{width:24px;height:24px;background:var(--amber)!important;animation:breathe 2s ease-in-out infinite;--b0:.85;--b1:.95;}
+  .bhue.resting{width:22px;height:22px;opacity:.5;}
+  @keyframes breathe{0%,100%{opacity:var(--b0);transform:scale(1);}50%{opacity:var(--b1);transform:scale(1.12);}}
+  .pulse{animation:pulseA 1.6s ease-in-out infinite;}
+  @keyframes pulseA{0%,100%{opacity:.6;}50%{opacity:.95;}}
+
+  /* workflow page */
+  .wf-sum{font-size:12px;font-weight:300;color:var(--faint);padding:16px 24px 4px;}
+  .newstrand{display:flex;align-items:center;gap:13px;padding:11px 24px;cursor:pointer;}
+  .newstrand .ring{width:28px;flex:0 0 auto;display:flex;justify-content:center;}
+  .newstrand .ring span{width:22px;height:22px;border-radius:50%;border:1px dashed rgba(255,255,255,.18);
+    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:300;color:var(--dim);line-height:1;}
+  .newstrand .lbl{font-size:13.5px;font-weight:300;color:var(--dim);}
+  .strand{padding:11px 24px;cursor:pointer;display:flex;flex-direction:column;gap:9px;}
+  .strand .hd{display:flex;align-items:center;gap:13px;}
+  .strand .nm{font-size:14px;}
+  .strand .nm.foc{font-weight:500;}
+  .strand .turns{font-size:11px;font-weight:300;color:var(--faint);}
+  .strand .arch{font-size:11.5px;font-weight:300;color:var(--dim);margin-left:auto;opacity:0;cursor:pointer;}
+  .strand:hover .arch{opacity:1;}
+  .gauge{display:flex;align-items:center;gap:6px;}
+  .gauge .trk{width:30px;height:3px;border-radius:2px;background:rgba(255,255,255,.08);position:relative;}
+  .gauge .fil{position:absolute;left:0;top:0;height:3px;border-radius:2px;}
+  .gauge .pct{font-size:10.5px;font-weight:300;}
+  .acts{display:flex;flex-direction:column;gap:7px;padding-left:27px;}
+  .act{display:flex;align-items:flex-start;gap:9px;}
+  .act .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;margin-top:4px;}
+  .act .tx{font-size:12.5px;font-weight:300;line-height:1.35;}
+  .act .tx.said{font-style:italic;}
+  .act .el{font-size:10.5px;font-weight:300;color:var(--faint);margin-left:auto;white-space:nowrap;}
+  .resting-lbl{font-size:12.5px;font-weight:300;color:var(--faint);padding-left:27px;}
+
+  .wf-foot{border-top:1px solid rgba(255,255,255,.05);margin:0 16px;}
+  .chips{display:flex;gap:8px;padding:12px 16px 14px;}
+  .chip{flex:1 1 0;text-align:center;padding:11px 0;border-radius:12px;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);cursor:pointer;}
+  .chip .t{font-size:12px;color:var(--dim);}
+  .chip .c{font-size:9.5px;font-weight:300;color:var(--faint);margin-top:3px;}
+
+  /* strand chat page */
+  .st-hd{padding:15px 22px 8px;display:flex;flex-direction:column;gap:10px;}
+  .st-actions{display:flex;align-items:center;gap:16px;font-size:12px;font-weight:300;}
+  .st-actions .a{color:var(--dim);cursor:pointer;}
+  .st-actions .stop{color:rgba(255,107,107,.85);cursor:pointer;}
+  .st-id{display:flex;align-items:center;gap:12px;}
+  .st-id .nm{font-size:16px;font-weight:600;}
+  .st-id .sb{font-size:11px;font-weight:300;color:var(--faint);margin-top:2px;}
+  .thread{display:flex;flex-direction:column;gap:12px;padding:6px 22px 14px;}
+  .msg-user{align-self:flex-end;max-width:calc(100% - 48px);font-size:13px;font-weight:300;color:rgba(243,241,234,.78);text-align:right;}
+  .msg-voice{align-self:flex-start;max-width:360px;font-size:13px;color:var(--ink);padding:10px 14px;border-radius:15px;}
+  .msg-tool{display:flex;align-items:center;gap:9px;padding-left:2px;}
+  .msg-tool .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;}
+  .msg-tool .tx{font-size:11.5px;font-weight:300;}
+  .msg-tool .el{font-size:10px;font-weight:300;color:var(--faint);margin-left:auto;}
+
+  /* embers */
+  .ember{display:flex;align-items:center;gap:14px;padding:12px 24px;cursor:pointer;}
+  .ember .ed{width:26px;flex:0 0 auto;display:flex;justify-content:center;}
+  .ember .ed span{width:22px;height:22px;border-radius:50%;filter:blur(6px);opacity:.30;}
+  .ember .nm{font-size:13.5px;color:var(--dim);}
+  .ember .mt{font-size:11px;font-weight:300;color:var(--faint);margin-top:2px;}
+  .ember .rowacts{margin-left:auto;display:flex;align-items:center;gap:14px;}
+  .ember .ract{font-size:11.5px;font-weight:300;color:var(--faint);cursor:pointer;white-space:nowrap;}
+  .ember .ract.hov{opacity:0;}
+  .ember:hover .ract.hov{opacity:1;}
+  .ember .ract.sure{color:rgba(255,107,107,.85);}
+  .ember .ract.save{color:var(--indigo);}
+  .ember input.rn{background:none;border:0;outline:0;color:var(--ink);font-family:var(--font);
+    font-size:13.5px;width:200px;}
+  .ember input.rn::placeholder{color:var(--faint);}
+
+  /* tune */
+  .grp{font-size:11px;font-weight:300;color:var(--faint);padding:16px 24px 8px;}
+  .trow{display:flex;align-items:baseline;gap:14px;padding:7px 24px;}
+  .trow .lbl{font-size:13px;font-weight:300;color:var(--dim);width:132px;flex:0 0 auto;}
+  .cap{font-size:11px;font-weight:300;color:var(--faint);padding:0 24px 4px 170px;}
+  .choice{font-size:13px;font-weight:300;color:var(--faint);cursor:pointer;}
+  .choice.on{font-weight:400;color:var(--ink);}
+  .choices{display:flex;gap:14px;flex-wrap:wrap;}
+  .onoff{font-size:13px;cursor:pointer;color:var(--faint);}
+  .onoff.on{color:var(--ink);}
+  .cdot{width:18px;height:18px;border-radius:50%;cursor:pointer;opacity:.7;box-shadow:inset 0 0 0 0 transparent;}
+  .cdot.on{opacity:1;box-shadow:0 0 0 1.5px var(--ink);}
+  .cdots{display:flex;gap:13px;}
+  .dd{display:flex;align-items:center;width:196px;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.05);
+    border:.9px solid rgba(116,113,103,.55);font-size:12.5px;font-weight:300;color:var(--ink);cursor:pointer;}
+  .dd svg{margin-left:auto;width:11px;height:11px;flex:0 0 auto;}
+  .vdd{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--ink);cursor:pointer;}
+  .vdd svg{width:8px;height:8px;}
+  .link{color:var(--indigo);cursor:pointer;font-size:13px;font-weight:300;}
+  .flink{color:var(--faint);cursor:pointer;font-size:13px;font-weight:300;}
+  .pinput{background:none;border:0;outline:0;color:var(--ink);font-family:var(--font);
+    font-size:13px;font-weight:300;width:180px;}
+  .pinput::placeholder{color:var(--faint);}
+  .tinput{background:rgba(255,255,255,.05);border:.9px solid rgba(116,113,103,.55);border-radius:7px;
+    padding:5px 9px;font-family:var(--font);font-size:12px;font-weight:300;color:var(--ink);outline:none;width:140px;}
+  .tinput::placeholder{color:var(--faint);}
+  .tgcode{font-size:17px;letter-spacing:3px;color:var(--ink);padding:2px 0;}
+  .tgcol{display:flex;flex-direction:column;gap:6px;}
+  .tgline{display:flex;align-items:baseline;gap:16px;}
+  .menu{position:fixed;z-index:50;background:#14161E;border:1px solid var(--hair);border-radius:9px;
+    padding:4px;box-shadow:0 12px 30px rgba(0,0,0,.6);max-height:260px;overflow-y:auto;min-width:180px;}
+  .menu .mi{font-size:12.5px;font-weight:300;color:var(--dim);padding:7px 11px;border-radius:6px;cursor:pointer;white-space:nowrap;}
+  .menu .mi:hover{background:rgba(255,255,255,.06);color:var(--ink);}
+  .menu .mi.on{color:var(--ink);}
+  .menu .sep{height:1px;background:var(--hair);margin:4px 6px;}
+  .prow{display:flex;align-items:center;gap:10px;padding:6px 24px;}
+  .prow .pl{font-size:13px;font-weight:300;color:var(--faint);}
+  .prow .pl.on{font-weight:400;color:var(--ink);}
+  .prow .pref{font-size:11px;font-weight:300;font-style:italic;color:var(--faint);}
+  .prow .st{font-size:11px;font-weight:300;color:var(--faint);}
+
+  /* tools (connections) */
+  .glyph{border-radius:50%;background:linear-gradient(#f7f5f0,#ebe8e0);color:#111111;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;font-family:Georgia,'Times New Roman',serif;font-weight:600;}
+  .glyph.conn{background:linear-gradient(var(--teal),#34e3c4);color:#04140f;}
+  .crow{display:flex;align-items:center;gap:13px;padding:11px 24px;cursor:pointer;}
+  .crow .cn{font-size:13.5px;font-weight:300;color:var(--dim);}
+  .crow .cn.on{font-weight:400;color:var(--ink);}
+  .crow .cs{font-size:11px;font-weight:300;color:var(--faint);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
+  .crow .tr{margin-left:auto;display:flex;align-items:center;gap:10px;white-space:nowrap;}
+  .crow .tr .s{font-size:11px;font-weight:300;color:var(--faint);}
+  .crow .tr .warn{color:var(--amber);}
+  .crow .tr .act{font-size:12px;font-weight:300;cursor:pointer;}
+  .hr{height:1px;background:var(--hair);margin:16px 24px;}
+  .eyebrow{font-size:10.5px;font-weight:300;letter-spacing:1.2px;color:var(--faint);padding:0 24px 11px;}
+  .scopeln{display:flex;align-items:baseline;gap:11px;padding:0 24px;margin-bottom:10px;}
+  .scopeln .ck{font-size:13px;color:var(--indigo);flex:0 0 auto;}
+  .scopeln .tx{font-size:13px;font-weight:300;color:var(--ink);}
+  .lockln{font-size:11px;font-weight:300;color:var(--faint);padding:15px 24px 0;}
+  .pills{display:flex;gap:10px;padding:0 24px 16px;}
+  .pill{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 0;
+    border-radius:10px;cursor:pointer;font-size:13px;}
+  .pill.pri{color:var(--indigo);font-weight:400;background:rgba(106,123,255,.16);border:1px solid rgba(106,123,255,.34);}
+  .pill.sec{color:var(--dim);font-weight:300;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);}
+  .tokinput{display:block;width:calc(100% - 48px);margin:0 24px 12px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:7px 10px;outline:none;
+    font-family:var(--font);font-size:12px;font-weight:300;color:var(--ink);}
+  .tokinput::placeholder{color:var(--faint);}
+
+  /* keys */
+  .kgrp{font-size:9px;font-weight:600;letter-spacing:2px;color:var(--faint);padding:14px 24px 4px;text-transform:lowercase;}
+  .krow{display:flex;align-items:center;gap:13px;padding:8px 24px;}
+  .krow .sq{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
+  .krow .nm{font-size:13.5px;font-weight:300;color:var(--ink);}
+  .krow .hold{font-size:9px;font-weight:600;letter-spacing:.5px;color:var(--faint);margin-left:auto;}
+  .caps{display:flex;gap:4px;margin-left:auto;}
+  .krow .hold + .caps{margin-left:10px;}
+  .cap-k{font-size:11px;color:var(--dim);min-width:13px;text-align:center;padding:2px 6px;border-radius:5px;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);}
+</style>
+</head>
+<body>
+  <div class="veil" id="veil"></div>
+  <div class="cluster" id="cluster">
+    <div class="surface" id="surface">
+      <div class="page" data-page="workflow"></div>
+      <div class="page" data-page="strand"></div>
+      <div class="page" data-page="embers"></div>
+      <div class="page" data-page="tune"></div>
+      <div class="page" data-page="tools"></div>
+      <div class="page" data-page="keys"></div>
+    </div>
+    <div class="notice" id="notice"></div>
+    <div class="beam">
+      <div class="orb"></div>
+      <input id="beam" type="text" autocomplete="off" spellcheck="false"/>
+    </div>
+  </div>
+
+<script>
+// ---------- palette + helpers ----------
+const SLOT=['#5AB6FF','#FF6B6B','#FFD93D','#4ADE80'];          // colorSlot -> hue
+const slotColor=s=>SLOT[Math.max(0,s)%4];
+const hashIdx=s=>{let h=0;for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;}return Math.abs(h)%4;};
+const chev='<svg viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5 L6 8 L9.5 4.5" stroke="#F3F1EA" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}
+function relTime(ts){if(!ts||ts<=0)return 'a while ago';const s=(Date.now()/1000)-ts;const m=s/60,h=m/60,d=h/24;
+  if(m<1)return 'just now';if(h<1)return `${Math.round(m)} minutes ago`;if(d<1)return `${Math.round(h)} hours ago`;
+  if(d<2)return 'yesterday';return `${Math.round(d)} days ago`;}
+
+// ---------- state (sample shapes until the wire replaces them) ----------
+let SUM={
+  route:'workflow', strandOrigin:'workflow', focusedId:'t-app', appVersion:'v0.3.17',
+  strands:[
+    {id:'t-app',name:'Apprentice',slot:0,foc:true,turns:6,role:'active',ctx:0.31,needs:false,
+     acts:[{k:'run',tx:'reading the reconciliation sheet…'},
+           {k:'said',tx:'On it — matching the bank export now.'},
+           {k:'done',tx:'opened Book1.xlsx',el:0.8},
+           {k:'done',tx:'froze the header row',el:1.1}]},
+    {id:'t-rec',name:'reconcile-q3',slot:3,turns:14,role:'needs',ctx:0.88,needs:true,
+     acts:[{k:'error',tx:'12 rows won’t match — need your call',el:2.3},
+           {k:'done',tx:'matched 612 of 624 rows',el:4.6}]},
+    {id:'t-res',name:'research-comps',slot:1,turns:2,role:'resting',ctx:0,needs:false,acts:[]},
+  ],
+  embers:[
+    {id:'e-deck',name:'QAC Pitch Deck',turns:4,lastActive:(Date.now()/1000)-7200},
+    {id:'e-reel',name:'Brand Reel Intelligence Scraper',turns:8,lastActive:(Date.now()/1000)-172800},
+  ],
+  emberEdit:null, emberConfirm:null,
+  transcripts:{}, transcriptReqAt:{}, loadingTranscript:{},
+  // tools page — the curated app-connections catalog (connections_state replaces it)
+  conns:[
+    {id:'notion',name:'Notion',icon:'notion',auth:'oauth',connected:false,live:false,toolCount:null,connecting:false,lastError:null,
+     scopes:['read and search your pages','create and update pages']},
+    {id:'linear',name:'Linear',icon:'linear',auth:'oauth',connected:false,live:false,toolCount:null,connecting:false,lastError:null,
+     scopes:['read your issues and projects','create and update issues']},
+    {id:'github',name:'GitHub',icon:'github',auth:'token',connected:false,live:false,toolCount:null,connecting:false,lastError:null,
+     scopes:['read your repositories','open pull requests and issues']},
+  ],
+  consentId:null, consentTok:'',
+  tune:{
+    modelId:'', activePipe:'', _showConns:false, _editKey:null,
+    models:[{id:'claude-sonnet-5',name:'Claude Sonnet 5',pipe:'anthropic-sdk'}],
+    providers:[{id:'anthropic-sdk',label:'Anthropic (Claude app)',authKind:'sdk',oauth:false,signedIn:true,preferred:true}],
+    sees:true, name:'', color:0, hueSize:'regular', pointerAlways:true, peek:true,
+    tts:'apple', email:'', ttsVoices:{}, ttsVoice:{}, ttsKey:{}, openaiSpeed:1.0,
+  },
+  tg:{state:'off',bot:'',chat:'',code:'',msg:''},
+};
+
+// ---------- routing ----------
+function setAccent(){
+  let hue='var(--indigo)';
+  if(SUM.route.startsWith('strand:')){const id=SUM.route.slice(7);const st=SUM.strands.find(x=>x.id===id);
+    hue=st?slotColor(st.slot):SLOT[hashIdx(id)];}
+  document.documentElement.style.setProperty('--accent',hue);
+}
+// origin: where a strand chat was entered from ('embers' | 'workflow') — back/Esc
+// return there. Computed from the previous route unless passed explicitly.
+function go(route,origin){
+  if(route.startsWith('strand:'))SUM.strandOrigin=origin||(SUM.route==='embers'?'embers':'workflow');
+  SUM.route=route; setAccent();
+  const base=route.startsWith('strand:')?'strand':route;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===base));
+  const beam=document.getElementById('beam');
+  if(route.startsWith('strand:')){const id=route.slice(7);const st=SUM.strands.find(x=>x.id===id)||SUM.embers.find(x=>x.id===id);
+    beam.placeholder=`message ${st?st.name:'strand'}…`;
+    if(WIRED){SUM.loadingTranscript[id]=true;SUM.transcriptReqAt[id]=Date.now()/1000;
+      sendMsg({type:'transcript_request',task_id:id});
+      // only focus a LIVE strand; an ember opens read-only
+      if(SUM.strands.find(x=>x.id===id))sendMsg({type:'agent_focus',task_id:id});}}
+  else beam.placeholder='ask, address a strand, or jump…';
+  if(route==='embers'&&WIRED)sendMsg({type:'task_history_request'});
+  if(route==='tune'&&WIRED){sendMsg({type:'tune_request'});sendMsg({type:'telegram_status_request'});}
+  if(route==='tools'&&WIRED)sendMsg({type:'connections_request'});
+  refresh();
+}
+function refresh(){const r=SUM.route;
+  if(r==='workflow')renderWorkflow();else if(r.startsWith('strand:'))renderStrand(r.slice(7));
+  else if(r==='embers')renderEmbers();else if(r==='tune')renderTune();
+  else if(r==='tools')renderTools();else if(r==='keys')renderKeys();}
+function refreshFor(id){if(SUM.route==='workflow')renderWorkflow();else if(SUM.route==='strand:'+id)renderStrand(id);}
+
+// ---------- workflow (page 1: live glance) ----------
+function renderWorkflow(){
+  const p=document.querySelector('.page[data-page="workflow"]');
+  const S=SUM.strands, working=S.filter(s=>s.role==='active').length;
+  let sum='';
+  if(S.length){sum=S.length===1?'one strand':`${S.length} strands`; if(working)sum+=` · ${working} working`;}
+  const ordered=[...S].sort((a,b)=>(a.id===SUM.focusedId?-1:b.id===SUM.focusedId?1:a.slot-b.slot));
+  let list='';
+  if(sum)list+=`<div class="wf-sum">${esc(sum)}</div>`;
+  if(!S.length)list+=`<div class="empty" style="padding:30px 24px 4px">no strands yet</div>`;
+  list+=`<div class="newstrand"><div class="ring"><span>+</span></div><div class="lbl">new strand</div></div>`;
+  ordered.forEach(s=>{
+    const hue=slotColor(s.slot), foc=s.id===SUM.focusedId;
+    let acts='';
+    if(!s.acts.length)acts=`<div class="resting-lbl">resting</div>`;
+    else s.acts.slice(0,8).forEach((a,i)=>{
+      const running=a.k==='run';
+      const dot=running?`<span class="dot pulse" style="background:${hue};filter:blur(.5px)"></span>`:`<span class="dot" style="background:transparent"></span>`;
+      let col='rgba(243,241,234,.9)';
+      if(a.k==='run')col='rgba(243,241,234,.98)';else if(a.k==='error')col='var(--red)';
+      else if(a.k==='done')col=`rgba(243,241,234,${Math.max(0.62,0.86-i*0.07)})`;
+      const el=(a.k==='done'||a.k==='error')&&a.el?`<span class="el">${a.el.toFixed(1)}s</span>`:'';
+      acts+=`<div class="act">${dot}<span class="tx ${a.k==='said'?'said':''}" style="color:${col}">${esc(a.tx)}</span>${el}</div>`;
+    });
+    // context gauge — warms to amber as the window fills
+    let gauge='';
+    if(s.ctx>0&&s.turns>0){const tint=s.ctx<0.6?'var(--dim)':s.ctx<0.85?'rgba(255,206,92,.8)':'var(--amber)';
+      gauge=`<span class="gauge"><span class="trk"><span class="fil" style="width:${30*Math.max(0.05,Math.min(1,s.ctx))}px;background:${tint}"></span></span><span class="pct" style="color:${tint}">${Math.round(s.ctx*100)}%</span></span>`;}
+    const roleCls=s.role==='needs'?'needs':s.role==='active'?'active':'resting';
+    const nameCol=s.role==='resting'?'var(--dim)':'var(--ink)';
+    list+=`<div class="strand" data-id="${esc(s.id)}">
+      <div class="hd">
+        <span class="bwrap"><span class="bhue ${roleCls}" style="background:${hue}"></span></span>
+        <span class="nm ${foc?'foc':''}" style="color:${nameCol}">${esc(s.name)}</span>
+        ${s.turns>0?`<span class="turns">${s.turns===1?'1 turn':s.turns+' turns'}</span>`:''}
+        ${gauge}
+        <span class="arch">archive</span>
+      </div>
+      <div class="acts">${acts}</div>
+    </div>`;
+  });
+  const rested=SUM.embers.length;
+  p.innerHTML=`<div class="scroll" style="flex:1 1 auto">${list}</div>
+    <div class="wf-foot"></div>
+    <div class="chips">
+      ${chip('Rested',rested?`${rested} archived`:'archived','embers')}
+      ${chip('Tune','settings','tune')}
+      ${chip('Tools','sources','tools')}
+      ${chip('Keys','shortcuts','keys')}
+    </div>`;
+  p.querySelectorAll('.strand').forEach(r=>r.addEventListener('click',e=>{if(e.target.closest('.arch'))return;go('strand:'+r.dataset.id);}));
+  p.querySelectorAll('.arch').forEach(a=>a.addEventListener('click',e=>{e.stopPropagation();const r=a.closest('.strand');if(r&&WIRED)sendMsg({type:'agent_archive',task_id:r.dataset.id});}));
+  p.querySelector('.newstrand').addEventListener('click',()=>{if(WIRED)sendMsg({type:'agent_spawn',focus:true});});
+  p.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>go(c.dataset.go)));
+}
+function chip(t,c,route){return `<div class="chip" data-go="${route}"><div class="t">${t}</div><div class="c">${c}</div></div>`;}
+
+// ---------- strand chat (page 2) ----------
+function renderStrand(id){
+  const p=document.querySelector('.page[data-page="strand"]');
+  const st=SUM.strands.find(x=>x.id===id), ember=SUM.embers.find(x=>x.id===id);
+  const name=st?st.name:ember?ember.name:'strand';
+  const hue=st?slotColor(st.slot):SLOT[hashIdx(id)];
+  const live=!!st, working=st&&st.role==='active';
+  const roleCls=!live?'resting':st.role==='needs'?'needs':st.role==='active'?'active':'resting';
+  const sub=live?(working?'working':'rested'):'an ember · reignite to continue';
+  const backLbl=SUM.strandOrigin==='embers'?'‹ embers':'‹ strands';
+  let actions=`<span class="a back-x">${backLbl}</span><span style="margin-left:auto"></span><span class="a popbtn">pop out</span>`;
+  if(live&&working)actions+=`<span class="stop stopbtn">stop</span>`;
+  if(live)actions+=`<span class="a archbtn">archive</span>`;else actions+=`<span class="a reibtn" style="color:${hue}">reignite</span>`;
+  const turns=SUM.transcripts[id]||[];
+  let thread='';
+  if(!turns.length)thread=`<div class="empty">${SUM.loadingTranscript[id]?'loading the conversation…':'no conversation yet — say something below'}</div>`;
+  else turns.forEach(t=>{
+    if(t.u)thread+=`<div class="msg-user">${esc(t.tx)}</div>`;
+    else if(t.k){const running=t.k==='run';
+      const dot=`<span class="dot ${running?'pulse':''}" style="background:${running?hue:'transparent'}"></span>`;
+      const col=t.k==='error'?'var(--red)':'var(--faint)';
+      const el=t.el?`<span class="el">${t.el.toFixed(1)}s</span>`:'';
+      thread+=`<div class="msg-tool">${dot}<span class="tx" style="color:${col}">${esc(t.tx)}</span>${el}</div>`;}
+    else thread+=`<div class="msg-voice" style="background:${hue}29;box-shadow:0 8px 12px ${hue}38">${esc(t.tx)}</div>`;
+  });
+  p.innerHTML=`<div class="st-hd">
+      <div class="st-actions">${actions}</div>
+      <div class="st-id"><span class="bwrap"><span class="bhue ${roleCls}" style="background:${hue}"></span></span>
+        <div><div class="nm">${esc(name)}</div><div class="sb">${sub}</div></div></div>
+    </div>
+    <div class="scroll" style="flex:1 1 auto"><div class="thread">${thread}</div></div>`;
+  p.querySelector('.back-x').addEventListener('click',()=>go(SUM.strandOrigin==='embers'?'embers':'workflow'));
+  const _pop=p.querySelector('.popbtn');if(_pop)_pop.onclick=()=>{if(WIRED)sendMsg({type:'agent_pop_out',task_id:id,name:name,slot:st?st.slot:hashIdx(id)});};
+  const _stop=p.querySelector('.stopbtn');if(_stop)_stop.onclick=()=>{if(WIRED)sendMsg({type:'runner_interrupt',reason:'user stop (summon)',task_id:id});};
+  const _arch=p.querySelector('.archbtn');if(_arch)_arch.onclick=()=>{if(WIRED)sendMsg({type:'agent_archive',task_id:id});go('workflow');};
+  const _rei=p.querySelector('.reibtn');if(_rei)_rei.onclick=()=>reignite(id);
+  const sc=p.querySelector('.scroll'); sc.scrollTop=sc.scrollHeight;
+}
+// reignite = relaunch the archived session; it's live again, so back lands on the glance
+function reignite(id){
+  if(WIRED)sendMsg({type:'agent_relaunch',task_id:id});
+  go('strand:'+id,'workflow');
+}
+
+// ---------- embers (archived / rested strands) ----------
+function renderEmbers(){
+  const p=document.querySelector('.page[data-page="embers"]');
+  let rows='';
+  if(!SUM.embers.length)rows=`<div class="empty">no rested strands</div>`;
+  else SUM.embers.forEach(e=>{const hue=slotColor(hashIdx(e.id));
+    const editing=SUM.emberEdit===e.id, confirming=SUM.emberConfirm===e.id;
+    const nm=editing
+      ?`<input class="rn" value="${esc(e.name)}" placeholder="name this strand" spellcheck="false"/>`
+      :`<div class="nm">${esc(e.name)}</div>`;
+    const acts=editing
+      ?`<span class="ract save">save</span>`
+      :`<span class="ract hov rnbtn">rename</span><span class="ract hov delbtn ${confirming?'sure':''}">${confirming?'sure?':'delete'}</span><span class="ract reibtn">reignite</span>`;
+    rows+=`<div class="ember" data-id="${esc(e.id)}">
+      <div class="ed"><span style="background:${hue}"></span></div>
+      <div>${nm}<div class="mt">rested · ${e.turns} turns · ${relTime(e.lastActive)}</div></div>
+      <div class="rowacts">${acts}</div></div>`;});
+  p.innerHTML=`<span class="back back-x">‹ strands</span>
+    <div class="sub">embers · rested strands · reignite anytime</div>
+    <div class="scroll" style="flex:1 1 auto;padding-bottom:10px">${rows}</div>`;
+  p.querySelector('.back-x').addEventListener('click',()=>go('workflow'));
+  p.querySelectorAll('.ember').forEach(r=>{
+    const id=r.dataset.id;
+    r.addEventListener('click',e=>{if(e.target.closest('.ract')||e.target.closest('input'))return;
+      if(SUM.emberEdit!==id)go('strand:'+id,'embers');});
+    r.addEventListener('mouseleave',()=>{if(SUM.emberConfirm===id){SUM.emberConfirm=null;renderEmbers();}});
+    const rn=r.querySelector('.rnbtn');if(rn)rn.onclick=()=>{SUM.emberEdit=id;SUM.emberConfirm=null;renderEmbers();
+      const inp=p.querySelector(`.ember[data-id="${CSS.escape(id)}"] input.rn`);if(inp){inp.focus();inp.select();}};
+    const del=r.querySelector('.delbtn');if(del)del.onclick=()=>{
+      if(SUM.emberConfirm===id){if(WIRED)sendMsg({type:'agent_delete',task_id:id});SUM.emberConfirm=null;}
+      else SUM.emberConfirm=id;
+      renderEmbers();};
+    const rei=r.querySelector('.reibtn');if(rei)rei.onclick=()=>reignite(id);
+    const save=r.querySelector('.ract.save'),inp=r.querySelector('input.rn');
+    const commit=()=>{const v=inp?inp.value.trim():'';SUM.emberEdit=null;
+      if(v&&v!==(SUM.embers.find(x=>x.id===id)||{}).name&&WIRED)sendMsg({type:'agent_rename',task_id:id,name:v});
+      renderEmbers();};
+    if(save)save.onclick=commit;
+    if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}e.stopPropagation();});
+  });
+}
+
+// ---------- tune (settings) ----------
+const CURSOR_COLORS=['#3380FF','#FF4D4D','#FFCC33','#33D17A'];
+const TTS=['apple','edge','cartesia','google','openai'];
+const shortName=lb=>String(lb||'').split(' ')[0].toLowerCase();
+function signedInPipes(T){return (T.providers||[]).filter(p=>p.signedIn);}
+function effPipe(T){
+  if(T.activePipe)return T.activePipe;
+  const m=(T.models||[]).find(x=>x.id===T.modelId);
+  if(m)return m.pipe;
+  const s=signedInPipes(T)[0];if(s)return s.id;
+  return (T.providers||[])[0]?(T.providers||[])[0].id:'';
+}
+// voice row, per backend — mirrors SummonManager voicePicker (edge/google/openai
+// have voice menus; google/cartesia/openai need a native TTS key first)
+function voiceDD(eng,T){const voices=(T.ttsVoices||{})[eng]||[],cur=(T.ttsVoice||{})[eng];
+  const lbl=(voices.find(v=>v.id===cur)||{}).label||'choose';
+  return `<span class="vdd" data-voicedd="${eng}">${esc(lbl)}${chev}</span>`;}
+function keyField(eng,ph){return `<input class="pinput ttskey" data-eng="${eng}" type="password" placeholder="${ph}" spellcheck="false"/><span class="link ttskeysave" data-eng="${eng}" style="margin-left:10px">save</span>`;}
+function ttsVoiceRow(T){const eng=T.tts,rw=c=>`<div class="trow"><span class="lbl">voice</span>${c}</div>`;
+  if(eng==='apple')return rw(`<span style="font-size:13px;color:var(--dim)">system voice</span>`);
+  if(eng==='edge')return rw(voiceDD('edge',T));
+  const keyed=(T.ttsKey||{})[eng];
+  if(!keyed){const ph=eng==='google'?'paste Google key':eng==='openai'?'paste OpenAI key':'paste API key';
+    return rw(keyField(eng,ph));}
+  if(eng==='cartesia')return rw(`<span style="font-size:13px;color:var(--dim)">key saved</span><span class="flink ttskeyclear" data-eng="cartesia" style="margin-left:12px">change</span>`);
+  return rw(`${voiceDD(eng,T)}<span class="flink ttskeyclear" data-eng="${eng}" style="margin-left:12px">change key</span>`);}
+
+// the whole phone-channel control, switching on telegram state:
+//   paired → @bot · chat · send test / turn off / unpair
+//   pairing → "message your bot this code" + the code
+//   off → off / turn on
+//   else (need_token / error) → token field + @BotFather hint (or the error)
+function telegramRows(){
+  const g=SUM.tg,sp=c=>c&&c.length===6?c.slice(0,3)+' '+c.slice(3):c;
+  let inner='';
+  if(g.state==='paired'){
+    inner=`<div class="tgline"><span style="font-size:13px;color:var(--ink)">${g.bot?'@'+esc(g.bot):'connected'}</span>
+      ${g.chat?`<span style="font-size:12px;font-weight:300;color:var(--faint)">${esc(g.chat)}</span>`:''}</div>
+      <div class="tgline"><span class="link" id="tgTest">send test</span>
+      <span class="flink" id="tgOff">turn off</span><span class="flink" id="tgUnpair">unpair</span></div>`;
+  }else if(g.state==='pairing'){
+    inner=`<div style="font-size:12px;font-weight:300;color:var(--dim)">in Telegram, message your bot this code:</div>
+      <div class="tgcode">${esc(sp(g.code||''))}</div>
+      <div class="tgline">${g.bot?`<span style="font-size:12px;font-weight:300;color:var(--faint)">@${esc(g.bot)}</span>`:''}
+      <span class="flink" id="tgUnpair">start over</span></div>`;
+  }else if(g.state==='off'){
+    inner=`<div class="tgline"><span style="font-size:13px;color:var(--faint)">off</span>
+      <span class="link" id="tgOn">turn on</span></div>`;
+  }else{ // need_token / error / unknown
+    inner=`<div class="tgline"><input class="pinput" id="tgToken" type="password" placeholder="paste bot token" spellcheck="false" style="width:200px"/>
+      <span class="link" id="tgSave">save</span></div>`;
+    if(g.state==='error'&&g.msg)inner+=`<div style="font-size:11px;font-weight:300;color:var(--amber)">${esc(g.msg)}</div>`;
+    else inner+=`<div style="font-size:11px;font-weight:300;color:var(--faint)">create a bot with @BotFather in Telegram, paste its token</div>`;
+  }
+  return `<div class="trow"><span class="lbl">telegram</span><div class="tgcol">${inner}</div></div>`;
+}
+
+function renderTune(){
+  const p=document.querySelector('.page[data-page="tune"]'), T=SUM.tune;
+  const _sy=(p.querySelector('.scroll')||{}).scrollTop||0;   // preserve scroll across re-render
+  if(T._showConns){renderTuneConnections(p);return;}
+  const row=(lbl,content)=>`<div class="trow"><span class="lbl">${lbl}</span>${content}</div>`;
+  const dd=(t,key)=>`<span class="dd" data-dd="${key}">${esc(t)}${chev}</span>`;
+  const pipe=effPipe(T);
+  const pipeModels=(T.models||[]).filter(m=>m.pipe===pipe);
+  const provLabel=(T.providers.find(x=>x.id===pipe)||{}).label;
+  const cur=pipeModels.find(m=>m.id===T.modelId);
+  const modelLabel=cur?cur.name.toLowerCase():(pipeModels.length?'choose a model':'no models');
+  let h=`<span class="back back-x">‹ strands</span><div class="sub">tune</div>`;
+  h+=`<div class="grp">mind</div>`;
+  h+=row('provider',dd(provLabel?shortName(provLabel):'—','provider'));
+  h+=row('model',dd(modelLabel,'model'));
+  h+=`<div class="cap">pick a provider, then its model · switching reconnects the agent</div>`;
+  h+=row('sees your screen',`<span class="onoff ${T.sees?'on':''}" id="seesToggle">${T.sees?'on':'off'}</span>`);
+  h+=`<div class="grp">presence</div>`;
+  h+=row('calls you',`<input class="pinput" id="tuneName" value="${esc(T.name||'')}" placeholder="your name" spellcheck="false"/><span class="link" id="nameSave" style="margin-left:10px;display:none">save</span>`);
+  h+=row('its colour',`<div class="cdots" id="cdots">${CURSOR_COLORS.map((c,i)=>`<span class="cdot ${i===T.color?'on':''}" style="background:${c}"></span>`).join('')}</div>`);
+  h+=row('its size',`<div class="choices" id="sizeChoices">${['small','regular','large'].map(s=>`<span class="choice ${s===(T.hueSize||'regular')?'on':''}" data-size="${s}">${s}</span>`).join('')}</div>`);
+  h+=row('on screen',`<div class="choices" id="onscreenChoices"><span class="choice ${T.pointerAlways!==false?'on':''}" data-pa="1">always</span><span class="choice ${T.pointerAlways===false?'on':''}" data-pa="0">while we talk</span></div>`);
+  h+=`<div class="cap">while we talk → the hue rests, and returns the moment you hold ⌃⌥</div>`;
+  h+=row('peeks at the edge',`<span class="onoff ${T.peek?'on':''}" id="peekToggle">${T.peek?'on':'off'}</span>`);
+  h+=`<div class="cap">on → the bottom bar stays hidden until your cursor nears it</div>`;
+  h+=`<div class="grp">voice</div>`;
+  h+=row('speaks via',`<div class="choices" id="ttsChoices">${TTS.map(e=>`<span class="choice ${e===T.tts?'on':''}" data-tts="${e}">${e}</span>`).join('')}</div>`);
+  h+=ttsVoiceRow(T);
+  if(T.tts==='openai')h+=row('speed',`<input type="range" class="ttsspeed" min="0.6" max="1.8" step="0.05" value="${T.openaiSpeed||1}" style="width:150px;accent-color:var(--indigo)"/><span class="spdval" style="margin-left:12px;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums">${(T.openaiSpeed||1).toFixed(2)}×</span>`);
+  h+=row('listens while you hold',`<span style="font-size:13px;color:var(--ink)">⌃⌥</span>`);
+  h+=`<div class="grp">phone</div>`;
+  h+=telegramRows();
+  h+=`<div class="grp">account</div>`;
+  h+=row('signed in as',`<span style="font-size:13px;font-weight:300;color:var(--ink)">${esc(T.email||'not signed in')}</span>`);
+  h+=row('',`<span class="link" id="signOut">sign out</span><span class="link" id="switchAcct" style="margin-left:16px">switch account</span>`);
+  h+=`<div class="grp">version</div>`;
+  h+=row(esc(SUM.appVersion),`<span class="link" id="checkUpd">check for updates</span>`);
+  h+=row('trouble?',`<span class="link" id="reportProb">report a problem</span>`);
+  p.innerHTML=`<div class="scroll" style="flex:1 1 auto;padding-bottom:18px">${h}</div>`;
+  const _sc=p.querySelector('.scroll'); if(_sc)_sc.scrollTop=_sy;   // restore scroll
+  p.querySelector('.back-x').addEventListener('click',()=>go('workflow'));
+  // provider dropdown — signed-in pipes + "manage connections…" (the sub-screen)
+  const pdd=p.querySelector('[data-dd="provider"]');
+  if(pdd)pdd.addEventListener('click',()=>{
+    const items=signedInPipes(T).map(pv=>({label:shortName(pv.label)+(pv.preferred?' (preferred)':''),id:pv.id,on:pv.id===pipe}));
+    items.push({sep:true},{label:'manage connections…',id:'__manage'});
+    openMenu(pdd,items,it=>{
+      if(it.id==='__manage'){T._showConns=true;renderTune();return;}
+      T.activePipe=it.id;renderTune();});});
+  // model dropdown → set_model (switching reconnects the agent)
+  const mdd=p.querySelector('[data-dd="model"]');
+  if(mdd)mdd.addEventListener('click',()=>{
+    if(!pipeModels.length){openMenu(mdd,[{label:'connect a provider…',id:'__manage'}],()=>{T._showConns=true;renderTune();});return;}
+    openMenu(mdd,pipeModels.map(m=>({label:m.name.toLowerCase(),id:m.id,on:m.id===T.modelId})),it=>{
+      T.modelId=it.id;if(WIRED)sendMsg({type:'set_model',model_id:it.id});renderTune();});});
+  // name → set_user_name (saved on Return / save, not per-keystroke)
+  const ni=p.querySelector('#tuneName'),ns=p.querySelector('#nameSave'),orig=T.name||'';
+  if(ni){ni.addEventListener('input',()=>{ns.style.display=(ni.value.trim()!==orig)?'inline':'none';});
+    const save=()=>{const v=ni.value.trim();if(v&&v!==orig){T.name=v;if(WIRED)sendMsg({type:'set_user_name',name:v});ns.style.display='none';}};
+    ni.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();ni.blur();}});
+    ns.addEventListener('click',save);}
+  // native host settings → ui_action
+  const seesT=p.querySelector('#seesToggle');if(seesT)seesT.onclick=()=>{T.sees=!T.sees;ui('set_sees',T.sees);renderTune();};
+  const peekT=p.querySelector('#peekToggle');if(peekT)peekT.onclick=()=>{T.peek=!T.peek;ui('set_peek',T.peek);renderTune();};
+  p.querySelectorAll('#cdots .cdot').forEach((d,i)=>d.onclick=()=>{T.color=i;ui('set_cursor_color',i);renderTune();});
+  p.querySelectorAll('#sizeChoices .choice').forEach(c=>c.onclick=()=>{T.hueSize=c.dataset.size;ui('set_hue_size',c.dataset.size);renderTune();});
+  p.querySelectorAll('#onscreenChoices .choice').forEach(c=>c.onclick=()=>{const v=c.dataset.pa==='1';T.pointerAlways=v;ui('set_pointer_always',v);renderTune();});
+  p.querySelectorAll('#ttsChoices .choice').forEach(c=>c.onclick=()=>{T.tts=c.dataset.tts;ui('set_tts',c.dataset.tts);renderTune();});
+  // voice picker (edge/google/openai) → set_voice; TTS key entry/clear → set_tts_key/clear_tts_key
+  p.querySelectorAll('[data-voicedd]').forEach(dd=>{const eng=dd.dataset.voicedd,voices=(T.ttsVoices||{})[eng]||[];
+    dd.addEventListener('click',()=>openMenu(dd,voices.map(v=>({label:v.label,id:v.id,on:v.id===(T.ttsVoice||{})[eng]})),it=>{(T.ttsVoice=T.ttsVoice||{})[eng]=it.id;ui('set_voice',{engine:eng,voice_id:it.id});renderTune();}));});
+  const saveTts=(inp)=>{const v=inp.value.trim(),eng=inp.dataset.eng;if(v){ui('set_tts_key',{engine:eng,key:v});(T.ttsKey=T.ttsKey||{})[eng]=true;}renderTune();};
+  p.querySelectorAll('.ttskey').forEach(inp=>{inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveTts(inp);}});});
+  p.querySelectorAll('.ttskeysave').forEach(x=>x.onclick=()=>{const inp=p.querySelector('.ttskey[data-eng="'+x.dataset.eng+'"]');if(inp)saveTts(inp);});
+  p.querySelectorAll('.ttskeyclear').forEach(x=>x.onclick=()=>{ui('clear_tts_key',x.dataset.eng);(T.ttsKey=T.ttsKey||{})[x.dataset.eng]=false;renderTune();});
+  const spd=p.querySelector('.ttsspeed');if(spd)spd.addEventListener('input',()=>{const v=parseFloat(spd.value);T.openaiSpeed=v;ui('set_openai_speed',v);const sv=p.querySelector('.spdval');if(sv)sv.textContent=v.toFixed(2)+'×';});
+  const so=p.querySelector('#signOut');if(so)so.onclick=()=>{ui('sign_out');dismiss();};
+  const sa=p.querySelector('#switchAcct');if(sa)sa.onclick=()=>{ui('switch_account');dismiss();};
+  const cu=p.querySelector('#checkUpd');if(cu)cu.onclick=()=>ui('check_updates');
+  const rp=p.querySelector('#reportProb');if(rp)rp.onclick=()=>ui('report_problem');
+  // phone (telegram) controls
+  const tOn=p.querySelector('#tgOn');if(tOn)tOn.onclick=()=>{if(WIRED)sendMsg({type:'telegram_config',enabled:true});};
+  const tOff=p.querySelector('#tgOff');if(tOff)tOff.onclick=()=>{if(WIRED)sendMsg({type:'telegram_config',enabled:false});SUM.tg.state='off';renderTune();};
+  const tUn=p.querySelector('#tgUnpair');if(tUn)tUn.onclick=()=>{if(WIRED)sendMsg({type:'telegram_unpair'});};
+  const tTest=p.querySelector('#tgTest');if(tTest)tTest.onclick=()=>{if(WIRED)sendMsg({type:'telegram_test'});};
+  const tTok=p.querySelector('#tgToken'),tSave=p.querySelector('#tgSave');
+  const saveTok=()=>{const v=tTok?tTok.value.trim():'';if(v&&WIRED)sendMsg({type:'telegram_config',enabled:true,token:v});if(tTok)tTok.value='';};
+  if(tTok)tTok.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveTok();}});
+  if(tSave)tSave.onclick=saveTok;
+}
+
+// mind → connections sub-screen: provider (pipe) sign-in — key paste / OAuth / sdk
+function renderTuneConnections(p){
+  const T=SUM.tune;
+  let h=`<span class="back back-x">‹ tune</span><div class="sub">connections</div>`;
+  (T.providers||[]).forEach(pv=>{
+    const pref=pv.preferred?`<span class="pref">(preferred)</span>`:'';
+    let ctrl;
+    if(pv.authKind==='sdk')ctrl=`<span class="st">via claude app</span>`;
+    else if(pv.signedIn)ctrl=`<span class="st">✓ signed in</span><span class="link keylogout" data-pid="${esc(pv.id)}" style="font-size:12px">logout</span>`;
+    else{const oa=pv.oauth?`<span class="link keyoauth" data-pid="${esc(pv.id)}" style="font-size:12px">sign in</span>`:'';
+      ctrl=`${oa}<input class="tinput keyinput" data-pid="${esc(pv.id)}" type="password" placeholder="paste API key" spellcheck="false" style="width:128px"/>`;}
+    h+=`<div class="prow"><span class="pl ${pv.signedIn?'on':''}">${esc(pv.label.toLowerCase())}</span>${pref}<span style="margin-left:auto"></span>${ctrl}</div>`;
+  });
+  h+=`<div class="cap" style="padding-left:24px;padding-top:8px">sign in or paste a key to unlock a provider's models · claude uses the claude app</div>`;
+  p.innerHTML=`<div class="scroll" style="flex:1 1 auto;padding-bottom:18px">${h}</div>`;
+  p.querySelector('.back-x').addEventListener('click',()=>{T._showConns=false;renderTune();});
+  p.querySelectorAll('.keyoauth').forEach(x=>x.onclick=()=>{if(WIRED)sendMsg({type:'oauth_start',provider_id:x.dataset.pid});});
+  p.querySelectorAll('.keylogout').forEach(x=>x.onclick=()=>{if(WIRED)sendMsg({type:'remove_credential',provider_id:x.dataset.pid});
+    const pr=(T.providers||[]).find(v=>v.id===x.dataset.pid);if(pr)pr.signedIn=false;renderTune();});
+  p.querySelectorAll('.keyinput').forEach(inp=>inp.addEventListener('keydown',e=>{
+    if(e.key!=='Enter')return;e.preventDefault();
+    const v=inp.value.trim(),pid=inp.dataset.pid;if(!v)return;
+    if(WIRED)sendMsg({type:'set_credential',provider_id:pid,api_key:v});
+    const pr=(T.providers||[]).find(x=>x.id===pid);if(pr)pr.signedIn=true;   // optimistic
+    renderTune();}));
+}
+
+// ---------- tools (app connections catalog) ----------
+function glyph(name,size,connected){
+  return `<span class="glyph ${connected?'conn':''}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.5)}px">${esc(String(name||'?').slice(0,1))}</span>`;}
+function connTrailing(c){
+  if(c.connecting)return `<span class="spin"></span><span class="s">connecting…</span>`;
+  if(c.connected){
+    let st;
+    if(!c.live)st=`<span class="s warn">connected · tools not loaded</span>`;
+    else if(c.toolCount>0)st=`<span class="s">✓ ${c.toolCount} tools</span>`;
+    else st=`<span class="s">✓ connected</span>`;
+    return `${st}<span class="act disbtn" style="color:var(--faint)">disconnect</span>`;
+  }
+  return `<span class="act openbtn" style="color:var(--indigo)">connect</span>`;
+}
+function renderTools(){
+  const p=document.querySelector('.page[data-page="tools"]');
+  const c=SUM.consentId?SUM.conns.find(x=>x.id===SUM.consentId):null;
+  let h=`<span class="back back-x">${c?'‹ connections':'‹ strands'}</span>`;
+  if(c)h+=renderConsent(c);
+  else{
+    h+=`<div class="sub">connections · what apprentice can reach</div>`;
+    if(!SUM.conns.length)h+=`<div style="font-size:12.5px;font-weight:300;color:var(--faint);padding:11px 24px">loading…</div>`;
+    else SUM.conns.forEach(x=>{
+      h+=`<div class="crow" data-id="${esc(x.id)}">
+        ${glyph(x.name,26,false)}
+        <div><div class="cn ${x.connected?'on':''}">${esc(x.name)}</div><div class="cs">${esc((x.scopes||[])[0]||'')}</div></div>
+        <div class="tr">${connTrailing(x)}</div></div>`;});
+    h+=`<div class="sub" style="padding:10px 24px 16px">more services soon</div>`;
+  }
+  p.innerHTML=`<div class="scroll" style="flex:1 1 auto">${h}</div>`;
+  p.querySelector('.back-x').addEventListener('click',()=>{
+    if(SUM.consentId){SUM.consentId=null;SUM.consentTok='';renderTools();}else go('workflow');});
+  if(c){wireConsent(p,c);return;}
+  p.querySelectorAll('.crow').forEach(r=>{
+    const id=r.dataset.id,x=SUM.conns.find(v=>v.id===id);if(!x)return;
+    r.addEventListener('click',e=>{
+      if(e.target.closest('.disbtn')){disconnectConn(id);return;}
+      if(x.connected||x.connecting)return;
+      SUM.consentId=id;SUM.consentTok='';renderTools();});
+  });
+}
+// in-panel consent / connected detail — mirrors SummonConnectionsView.consentDetail
+function renderConsent(c){
+  const title=c.connected?`${c.name} connected`:`connect ${c.name}`;
+  const sub=c.connected?`${c.toolCount||0} tools now available on every model`
+    :`so apprentice can work in your ${c.name} — on any model.`;
+  let h=`<div style="display:flex;align-items:center;gap:13px;padding:6px 24px 0">
+    ${glyph(c.name,42,c.connected)}
+    <div><div style="font-size:17px;font-weight:300;color:var(--ink)">${esc(title)}</div>
+    <div style="font-size:12px;font-weight:300;color:var(--dim);margin-top:3px">${esc(sub)}</div></div></div>`;
+  h+=`<div class="hr"></div>`;
+  if(c.connected){
+    h+=`<div class="lockln" style="padding-top:0;padding-bottom:16px">manage or disconnect anytime.</div>`;
+    h+=`<div class="pills"><span class="pill sec" id="cDisc">disconnect</span><span class="pill pri" id="cDone">done</span></div>`;
+    return h;
+  }
+  h+=`<div class="eyebrow">apprentice will be able to</div>`;
+  (c.scopes||[]).forEach(s=>{h+=`<div class="scopeln"><span class="ck">✓</span><span class="tx">${esc(s)}</span></div>`;});
+  h+=`<div class="lockln" style="padding-bottom:${c.auth==='token'?10:16}px">${c.auth==='token'
+    ?`paste an API key from ${esc(c.name)}. stored securely; remove anytime.`
+    :`you'll sign in securely with ${esc(c.name)}. disconnect anytime.`}</div>`;
+  if(c.auth==='token')h+=`<input class="tokinput" id="cTok" type="password" placeholder="paste API key" spellcheck="false" value="${esc(SUM.consentTok)}"/>`;
+  if(c.lastError)h+=`<div style="font-size:11px;font-weight:300;color:var(--red);padding:0 24px 10px">${esc(c.lastError)}</div>`;
+  const busyLbl=c.auth==='token'?'connecting…':`waiting for ${esc(c.name)}…`;
+  h+=`<div class="pills"><span class="pill sec" id="cNot">not now</span>
+    <span class="pill pri" id="cGo">${c.connecting?`<span class="spin"></span>${busyLbl}`:'connect'}</span></div>`;
+  if(c.connecting&&c.auth!=='token')h+=`<div style="font-size:11px;font-weight:300;color:var(--indigo);padding:0 24px 16px">finish signing in in your browser.</div>`;
+  return h;
+}
+function wireConsent(p,c){
+  const done=()=>{SUM.consentId=null;SUM.consentTok='';renderTools();};
+  const dn=p.querySelector('#cDone');if(dn)dn.onclick=done;
+  const dc=p.querySelector('#cDisc');if(dc)dc.onclick=()=>{disconnectConn(c.id);done();};
+  const nn=p.querySelector('#cNot');if(nn)nn.onclick=done;
+  const tok=p.querySelector('#cTok');
+  if(tok)tok.addEventListener('input',()=>{SUM.consentTok=tok.value;});
+  const goBtn=p.querySelector('#cGo');
+  if(goBtn)goBtn.onclick=()=>{
+    if(c.connecting)return;
+    if(c.auth==='token'){
+      const v=(tok?tok.value:'').trim();if(!v)return;
+      c.connecting=true;c.lastError=null;SUM.consentTok='';
+      if(WIRED)sendMsg({type:'connection_set_token',connection_id:c.id,token:v});
+    }else{
+      c.connecting=true;c.lastError=null;
+      if(WIRED)sendMsg({type:'connection_connect',connection_id:c.id});
+    }
+    renderTools();};
+  if(tok)tok.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(goBtn)goBtn.onclick();}});
+}
+function disconnectConn(id){
+  const c=SUM.conns.find(x=>x.id===id);if(!c)return;
+  c.connected=false;c.live=false;c.toolCount=null;c.connecting=false;   // optimistic
+  if(WIRED)sendMsg({type:'connection_disconnect',connection_id:id});
+  if(SUM.route==='tools')renderTools();
+}
+
+// ---------- keys (every shortcut, in one place) ----------
+const IS_WIN=/win/i.test(navigator.platform||'');
+function capLbl(k){
+  if(!IS_WIN)return k;
+  const map={'⌘':'Ctrl','⌥':'Alt','⌃':'Ctrl','fn':'fn','esc':'Esc','space':'Space','←':'←','→':'→'};
+  return map[k]||k;
+}
+function renderKeys(){
+  const p=document.querySelector('.page[data-page="keys"]');
+  const I='var(--indigo)',T='var(--teal)',L='var(--lilac)',A='var(--amber)',F='var(--faint)';
+  const groups=[
+    ['talk',[
+      ['Summon',['⌘','⌥','S'],I],
+      ['Talk to apprentice',['⌃','⌥'],I,'hold'],
+      ['Dictate into any app',['fn'],T,'hold'],
+      ['Transcribe a call',['⌃','⌥','C'],T],
+      ['Talking point',['⌃','⌥','space'],T],
+      ['Past calls & transcripts',['⌃','⌥','H'],T]]],
+    ['surfaces',[
+      ['Inspector — what I’ve learned',['⌘','⌥','J'],L],
+      ['Video editor',['⌘','⌥','V'],A],
+      ['Apprentice editor',['⌘','⌥','E'],A]]],
+    ['agents',[
+      ['New agent',['⌃','⌘','N'],T],
+      ['Next agent',['⌃','⌘','→'],I],
+      ['Previous agent',['⌃','⌘','←'],I],
+      ['Move the hearth',['⌃','⌘','P'],A],
+      ['Card material',['⌃','⌘','B'],A],
+      ['Hearth axis',['⌃','⌘','A'],A]]],
+    ['app',[
+      ['About Apprentice',['⌘','⌥','I'],L],
+      ['Back / dismiss',['esc'],F]]],
+  ];
+  let h=`<span class="back back-x">‹ strands</span><div class="sub">keys · every shortcut, in one place</div>`;
+  groups.forEach(([g,items])=>{h+=`<div class="kgrp">${g}</div>`;
+    items.forEach(([nm,caps,col,hold])=>{
+      // on Windows ⌃/⌘ both map to Ctrl — collapse duplicates
+      let ks=caps.map(capLbl);if(IS_WIN)ks=ks.filter((k,i)=>k!==ks[i-1]);
+      h+=`<div class="krow"><span class="sq" style="background:${col}"></span><span class="nm">${esc(nm)}</span>
+        ${hold?`<span class="hold">hold</span>`:''}
+        <span class="caps">${ks.map(k=>`<span class="cap-k">${esc(k)}</span>`).join('')}</span></div>`;});});
+  p.innerHTML=`<div class="scroll" style="flex:1 1 auto;padding-bottom:14px">${h}</div>`;
+  p.querySelector('.back-x').addEventListener('click',()=>go('workflow'));
+}
+
+// ---------- open / esc / dismiss ----------
+let OPEN=false;
+function openBloom(){
+  if(OPEN)return;OPEN=true;
+  go('workflow');
+  if(WIRED){sendMsg({type:'agent_list'});sendMsg({type:'task_history_request'});}
+  document.getElementById('veil').classList.add('on');
+  document.getElementById('cluster').classList.add('on');
+  setTimeout(()=>document.getElementById('beam').focus(),180);
+}
+function dismiss(){
+  OPEN=false;
+  ui('summon_dismiss');   // the shell hides the panel
+  document.getElementById('veil').classList.remove('on');
+  document.getElementById('cluster').classList.remove('on');
+  SUM.consentId=null;SUM.tune._showConns=false;SUM.emberEdit=null;SUM.emberConfirm=null;
+  closeMenu();
+}
+document.getElementById('veil').addEventListener('click',dismiss);
+// Esc steps back one page, then dismisses: consent → list, sub-screen → tune,
+// strand → where it was opened from, any sub-page → glance, glance → gone.
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(_menu){closeMenu();return;}
+  if(SUM.route==='tools'&&SUM.consentId){SUM.consentId=null;SUM.consentTok='';renderTools();return;}
+  if(SUM.route==='tune'&&SUM.tune._showConns){SUM.tune._showConns=false;renderTune();return;}
+  if(SUM.route.startsWith('strand:')){go(SUM.strandOrigin==='embers'?'embers':'workflow');return;}
+  if(SUM.route!=='workflow'){go('workflow');return;}
+  dismiss();
+});
+// the shell re-shows the (still-loaded) window → bloom again from the glance
+window.addEventListener('focus',()=>{if(!OPEN)openBloom();});
+// beam: Enter sends the utterance to the open/focused strand (same entry point as voice)
+document.getElementById('beam').addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const inp=e.target,text=inp.value.trim();if(!text)return;
+  const tid=SUM.route.startsWith('strand:')?SUM.route.slice(7):SUM.focusedId;
+  if(WIRED){const o={type:'transcript_final',text};if(tid)o.task_id=tid;sendMsg(o);}
+  if(tid){pushThread(tid,{u:true,tx:text});if(SUM.route==='strand:'+tid)renderStrand(tid);else go('strand:'+tid);}
+  inp.value='';
+});
+
+// transient amber notice above the beam (spawn/delete rejections)
+let _noticeT=null;
+function notice(text){
+  const n=document.getElementById('notice');
+  n.textContent=text;n.classList.add('on');
+  clearTimeout(_noticeT);_noticeT=setTimeout(()=>n.classList.remove('on'),4500);
+}
+
+// ---------- live wire (same native bridge as the inspector) ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+// Native host settings (TTS / cursor colour / peek / screen-awareness / updates /
+// sign-out / report / dismiss) ride a ui_action the shell intercepts. Agent actions
+// (spawn/focus/archive/relaunch/rename/delete/interrupt/model/credentials/telegram/
+// connections) go straight over the wire.
+function ui(action,value){if(WIRED)sendMsg({type:'ui_action',action:action,value:value});}
+function strandFor(id){return id?SUM.strands.find(s=>s.id===id):SUM.strands.find(s=>s.id===SUM.focusedId);}
+function recomputeRoles(){SUM.strands.forEach(s=>{const running=(s.acts||[]).some(a=>a.k==='run');s.role=s.needs?'needs':running?'active':'resting';s.foc=(s.id===SUM.focusedId);});}
+function pushThread(id,e){e.t=Date.now()/1000;e.local=true;(SUM.transcripts[id]=SUM.transcripts[id]||[]).push(e);}
+
+const AGENT={};
+// dock: agent_ready (AUTHORITATIVE) → reset; agent_spawned → add; agent_list → replace
+AGENT['agent_ready']=function(m){
+  SUM.strands=[{id:m.task_id,name:m.task_name||'Apprentice',slot:m.color_slot==null?-1:m.color_slot,turns:m.turn_count||0,isPrimary:!!m.is_primary,role:'resting',ctx:0,acts:[],needs:false}];
+  SUM.transcripts={};SUM.focusedId=m.task_id;recomputeRoles();refresh();};
+AGENT['agent_spawned']=function(m){
+  if(!SUM.strands.find(s=>s.id===m.task_id))SUM.strands.push({id:m.task_id,name:m.task_name||'Untitled',slot:m.color_slot==null?-1:m.color_slot,turns:m.turn_count||0,role:'resting',ctx:0,acts:[],needs:false});
+  recomputeRoles();refresh();};
+AGENT['agent_list']=function(m){
+  const pa={},pn={};SUM.strands.forEach(s=>{pa[s.id]=s.acts;pn[s.id]=s.needs;});
+  SUM.strands=(m.agents||[]).map(a=>{
+    const acts=pa[a.task_id]||(a.current_step?[{k:'run',tx:a.current_step}]:[]);
+    return {id:a.task_id,name:a.task_name||'Untitled',slot:a.color_slot==null?-1:a.color_slot,turns:a.turn_count||0,isPrimary:!!a.is_primary,role:'resting',ctx:0,acts:acts,needs:pn[a.task_id]||false};});
+  if(m.focused_task_id)SUM.focusedId=m.focused_task_id;recomputeRoles();refresh();};
+AGENT['agent_focus_changed']=function(m){SUM.focusedId=m.task_id;const s=SUM.strands.find(x=>x.id===m.task_id);if(s)s.needs=false;recomputeRoles();refresh();};
+AGENT['agent_archived']=function(m){SUM.strands=SUM.strands.filter(s=>s.id!==m.task_id);
+  if(WIRED)sendMsg({type:'task_history_request'});   // it becomes an ember
+  refresh();};
+AGENT['agent_deleted']=function(m){
+  SUM.strands=SUM.strands.filter(s=>s.id!==m.task_id);
+  SUM.embers=SUM.embers.filter(e=>e.id!==m.task_id);
+  delete SUM.transcripts[m.task_id];
+  if(SUM.route==='strand:'+m.task_id)go(SUM.strandOrigin==='embers'?'embers':'workflow');else refresh();};
+AGENT['agent_renamed']=function(m){
+  const s=SUM.strands.find(x=>x.id===m.task_id);if(s)s.name=m.name||s.name;
+  const e=SUM.embers.find(x=>x.id===m.task_id);if(e)e.name=m.name||e.name;
+  refresh();};
+AGENT['agent_progress']=function(m){const s=SUM.strands.find(x=>x.id===m.task_id);if(s){s.turns=m.turn_count||s.turns;s.ctx=Math.min(1,(m.context_tokens||0)/(m.context_window||200000));if(SUM.route==='workflow')renderWorkflow();}};
+AGENT['agent_interrupted']=function(m){const s=SUM.strands.find(x=>x.id===m.task_id);if(!s)return;
+  s.acts.forEach(a=>{if(a.k==='run')a.k='done';});
+  (SUM.transcripts[s.id]||[]).forEach(t=>{if(t.k==='run')t.k='done';});
+  recomputeRoles();refreshFor(s.id);};
+AGENT['agent_turn_complete']=function(m){const s=SUM.strands.find(x=>x.id===m.task_id);if(s&&s.id!==SUM.focusedId){/* justCompleted glow — cosmetic */}};
+AGENT['agent_spawn_rejected']=function(m){notice(m.reason||'couldn’t start a new strand');};
+AGENT['agent_delete_rejected']=function(m){notice(m.reason||'couldn’t delete that strand');};
+// activity feed: acts = newest-first (glance) + transcripts[id] = chronological (chat)
+AGENT['tool_started']=function(m){const s=strandFor(m.task_id);if(!s)return;const tx=m.friendly||m.name||'…';s.acts.unshift({id:m.tool_id,k:'run',tx});if(s.acts.length>16)s.acts.length=16;pushThread(s.id,{id:m.tool_id,k:'run',tx});recomputeRoles();refreshFor(s.id);};
+AGENT['tool_finished']=function(m){const s=strandFor(m.task_id);if(!s)return;const nk=m.is_error?'error':'done';const a=s.acts.find(x=>x.id===m.tool_id);if(a){a.k=nk;a.el=m.elapsed_s;}const t=(SUM.transcripts[s.id]||[]).find(x=>x.id===m.tool_id);if(t){t.k=nk;t.el=m.elapsed_s;}if(m.is_error&&s.id!==SUM.focusedId)s.needs=true;recomputeRoles();refreshFor(s.id);};
+AGENT['agent_text']=function(m){const s=strandFor(m.task_id);if(!s)return;s.acts.unshift({k:'said',tx:m.text});if(s.acts.length>16)s.acts.length=16;pushThread(s.id,{u:false,tx:m.text});refreshFor(s.id);};
+AGENT['task_history']=function(m){SUM.embers=(m.tasks||[]).filter(t=>t.status==='archived'&&t.is_live!==true&&(t.turn_count||0)>0).map(t=>({id:t.task_id,name:t.task_name||'Untitled',turns:t.turn_count||0,lastActive:t.last_active_at||0})).sort((a,b)=>b.lastActive-a.lastActive);if(SUM.route==='embers'||SUM.route==='workflow')refresh();};
+// turns arrive as [[role,text,t,tools]…] (or objects on older agents) — parse
+// both, order defensively by timestamp, then re-append live entries newer than
+// the fetch so history + live don't double up.
+AGENT['conversation_transcript']=function(m){
+  const id=m.task_id, reqAt=SUM.transcriptReqAt[id]||0;
+  const toolLine=tl=>{
+    if(typeof tl==='string')return {k:'done',tx:tl};
+    if(!tl||typeof tl!=='object')return null;
+    const tx=tl.friendly||tl.name||tl.text||'';if(!tx)return null;
+    return {k:(tl.is_error||tl.error)?'error':'done',tx:tx,el:tl.elapsed_s||tl.elapsed||0};};
+  let parsed=[];
+  (m.turns||[]).forEach((raw,i)=>{
+    let role,text,t,tools;
+    if(Array.isArray(raw)){role=raw[0];text=raw[1];t=raw[2];tools=raw[3];}
+    else if(raw&&typeof raw==='object'){role=raw.role;text=raw.text;t=raw.t;tools=raw.tools;}
+    else return;
+    t=(typeof t==='number'&&t>0)?t:0;
+    const tx=String(text||'').trim();
+    if(tx)parsed.push({i:parsed.length,t:t,e:role==='user'?{u:true,tx:tx,t:t}:{u:false,tx:tx,t:t}});
+    if(Array.isArray(tools))tools.forEach(tl=>{const e=toolLine(tl);if(e){e.t=t;parsed.push({i:parsed.length,t:t,e:e});}});
+  });
+  parsed.sort((a,b)=>(a.t&&b.t&&a.t!==b.t)?a.t-b.t:a.i-b.i);   // stable, defensive
+  const local=(SUM.transcripts[id]||[]).filter(e=>e.local&&e.t>reqAt);
+  SUM.transcripts[id]=parsed.map(x=>x.e).concat(local);
+  SUM.loadingTranscript[id]=false;
+  if(SUM.route==='strand:'+id)renderStrand(id);};
+// phone channel — full state machine for the tune phone group
+AGENT['telegram_status']=function(m){
+  SUM.tg={state:m.state||'off',bot:m.bot_username||'',chat:m.chat_id||'',code:m.pairing_code||'',msg:m.message||''};
+  if(SUM.route==='tune')renderTune();};
+// native host settings snapshot
+AGENT['tune_state']=function(m){const T=SUM.tune;
+  if(m.tts!=null)T.tts=m.tts; if(m.color!=null)T.color=m.color; if(m.peek!=null)T.peek=m.peek;
+  if(m.sees!=null)T.sees=m.sees; if(m.email!=null)T.email=m.email; if(m.userName!=null)T.name=m.userName;
+  if(m.hueSize!=null)T.hueSize=m.hueSize; if(m.pointerAlways!=null)T.pointerAlways=m.pointerAlways;
+  if(m.version)SUM.appVersion=m.version;
+  if(m.ttsVoices)T.ttsVoices=m.ttsVoices; if(m.ttsVoice)T.ttsVoice=m.ttsVoice; if(m.ttsKey)T.ttsKey=m.ttsKey;
+  if(m.openaiSpeed!=null)T.openaiSpeed=m.openaiSpeed;
+  if(SUM.route==='tune')renderTune();};
+// hello carries the model catalog + pipes → populate the mind group
+AGENT['hello']=function(m){const T=SUM.tune;
+  if((m.models||[]).length)T.models=m.models.map(x=>({id:x.id,name:x.name||x.id,pipe:x.pipe||x.provider||''}));
+  if((m.providers||[]).length)T.providers=m.providers.map(x=>({id:x.id,label:x.label||x.id,kind:x.kind||'',authKind:x.auth_kind||'api_key',oauth:!!x.oauth,signedIn:!!x.signed_in,preferred:!!x.preferred}));
+  if(!T.modelId&&T.models.length)T.modelId=T.models[0].id;
+  if(SUM.route==='tune')renderTune();};
+AGENT['oauth_result']=function(m){
+  if(!m.ok)return;
+  const pr=(SUM.tune.providers||[]).find(p=>p.id===m.provider_id);if(pr)pr.signedIn=true;
+  if(SUM.route==='tune')renderTune();};
+// app connections catalog + results (tools page)
+AGENT['connections_state']=function(m){
+  const inflight=new Set(SUM.conns.filter(c=>c.connecting).map(c=>c.id));
+  SUM.conns=(m.connections||[]).map(c=>({
+    id:c.id,name:c.display_name||c.id,icon:c.icon||'',auth:c.auth||'oauth',scopes:c.scopes||[],
+    connected:!!c.connected,live:!!c.live,toolCount:(c.tool_count==null?null:c.tool_count),
+    connecting:inflight.has(c.id)&&!c.connected,lastError:null}));
+  if(SUM.route==='tools')renderTools();};
+AGENT['connection_result']=function(m){
+  const c=SUM.conns.find(x=>x.id===m.connection_id);if(!c)return;
+  c.connecting=false;
+  if(m.disconnected){c.connected=false;c.live=false;c.toolCount=null;c.lastError=null;}
+  else{c.connected=!!m.ok;c.live=!!m.ok;
+    if(m.tool_count!=null)c.toolCount=m.tool_count;
+    c.lastError=m.ok?null:(m.error||'couldn’t connect');}
+  if(SUM.route==='tools')renderTools();};
+
+// lightweight dropdown menu anchored under an element
+let _menu=null;
+function closeMenu(){if(_menu){_menu.remove();_menu=null;document.removeEventListener('mousedown',_menuOut,true);}}
+function _menuOut(e){if(_menu&&!_menu.contains(e.target))closeMenu();}
+function openMenu(anchor,items,onPick){
+  closeMenu();const r=anchor.getBoundingClientRect();
+  _menu=el(`<div class="menu"></div>`);
+  items.forEach(it=>{
+    if(it.sep){_menu.appendChild(el(`<div class="sep"></div>`));return;}
+    const mi=el(`<div class="mi${it.on?' on':''}">${esc(it.label)}</div>`);
+    mi.addEventListener('click',()=>{closeMenu();onPick(it);});_menu.appendChild(mi);});
+  document.body.appendChild(_menu);
+  _menu.style.left=Math.min(r.left,window.innerWidth-_menu.offsetWidth-8)+'px';
+  _menu.style.top=Math.min(r.bottom+4,window.innerHeight-_menu.offsetHeight-8)+'px';
+  setTimeout(()=>document.addEventListener('mousedown',_menuOut,true),0);
+}
+
+window.__onWired=function(){WIRED=true;
+  sendMsg({type:'agent_list'});sendMsg({type:'task_history_request'});
+  // pages already open before the wire came up fetch their own state
+  if(SUM.route==='tune'){sendMsg({type:'tune_request'});sendMsg({type:'telegram_status_request'});}
+  if(SUM.route==='tools')sendMsg({type:'connections_request'});
+};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+// boot (honor __initTab for direct screencapture of any page: workflow/embers/tune/tools/keys or strand:<id>)
+go(window.__initTab||'workflow');
+requestAnimationFrame(()=>{OPEN=true;
+  document.getElementById('veil').classList.add('on');document.getElementById('cluster').classList.add('on');
+  setTimeout(()=>document.getElementById('beam').focus(),180);});
+</script>
+</body>
+</html>

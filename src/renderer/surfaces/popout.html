@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · pop-out</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* A strand's chat detached into a small persistent floating card. Faithful to
+     SummonManager.swift's SummonPopoutView (296×372, hue-aura top, no shadow).
+     Opened from the summon strand header "pop out" or the dock card "Pop out". */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  :root{ --hue:#5AB6FF; --voice:#14161E; }
+  .card{position:fixed;top:12px;left:12px;width:296px;height:372px;
+    background:var(--ground);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;
+    border:1px solid color-mix(in srgb,var(--hue) 34%,transparent);}
+  /* top hue aura bleeding from the top edge */
+  .aura{position:absolute;left:0;right:0;top:0;height:92px;pointer-events:none;filter:blur(16px);
+    background:linear-gradient(to bottom,color-mix(in srgb,var(--hue) 18%,transparent),transparent);}
+  .hd{position:relative;display:flex;align-items:center;gap:10px;padding:13px 14px;flex:0 0 auto;}
+  .hd .dot{width:13px;height:13px;border-radius:50%;background:var(--hue);filter:blur(2px);flex:0 0 auto;}
+  .hd .dot.working{animation:pop 1.7s ease-in-out infinite;}
+  @keyframes pop{0%,100%{opacity:.7;transform:scale(1);}50%{opacity:1;transform:scale(1.12);}}
+  .hd .who{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .hd .nm{font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .hd .st{font-size:10px;font-weight:300;color:var(--faint);}
+  .hd .close{margin-left:auto;font-size:11px;font-weight:300;color:var(--faint);cursor:pointer;flex:0 0 auto;}
+  .hd .close:hover{color:var(--ink);}
+  .thread{position:relative;flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:6px 14px 10px;}
+  .empty{font-size:12px;font-weight:300;color:var(--faint);text-align:center;padding:26px 0;}
+  .u{align-self:flex-end;max-width:232px;font-size:12.5px;font-weight:300;color:var(--dim);text-align:right;}
+  .v{align-self:flex-start;max-width:232px;font-size:12.5px;color:#fff;padding:9px 12px;border-radius:13px;
+    background:color-mix(in srgb,var(--voice) 90%,transparent);
+    background-image:linear-gradient(135deg,color-mix(in srgb,var(--hue) 30%,transparent),color-mix(in srgb,var(--hue) 12%,transparent));}
+  .tl{display:flex;align-items:flex-start;gap:8px;}
+  .tl .d{width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--hue) 65%,transparent);flex:0 0 auto;margin-top:4px;}
+  .tl .d.run{animation:pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:.6;}50%{opacity:.95;}}
+  .tl .tx{font-size:11px;font-weight:300;color:var(--faint);line-height:1.3;}
+  .tl .tx.err{color:var(--red);}
+  .tl .el{font-size:9.5px;font-weight:300;color:var(--faint);margin-left:auto;flex:0 0 auto;}
+  .composer{position:relative;display:flex;align-items:center;gap:9px;padding:11px 14px;flex:0 0 auto;
+    border-top:1px solid rgba(255,255,255,.07);}
+  .composer .orb{width:9px;height:9px;border-radius:50%;background:var(--hue);filter:blur(1px);
+    box-shadow:0 0 6px var(--hue);flex:0 0 auto;}
+  .composer input{flex:1;background:none;border:0;outline:0;color:var(--ink);font-family:var(--font);font-size:12.5px;font-weight:300;}
+  .composer input::placeholder{color:var(--faint);}
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="aura"></div>
+    <div class="hd">
+      <span class="dot" id="dot"></span>
+      <div class="who"><div class="nm" id="nm">strand</div><div class="st" id="st">rested</div></div>
+      <span class="close" id="close">close</span>
+    </div>
+    <div class="thread" id="thread"></div>
+    <div class="composer"><span class="orb"></span><input id="in" placeholder="message…" autocomplete="off" spellcheck="false"/></div>
+  </div>
+<script>
+const SLOT=['#5AB6FF','#FF6B6B','#FFD93D','#4ADE80'];
+const slotColor=s=>SLOT[Math.max(0,s)%4];
+const PO={ taskId:null, name:'strand', slot:0, working:false, loading:false,
+  thread:[  // sample — replaced on conversation_transcript
+    {u:true,tx:'reconcile the Q3 sheet against the bank export'},
+    {u:false,tx:'On it — matching the bank export now.'},
+    {id:'t1',k:'done',tx:'opened Book1.xlsx',el:0.8},
+    {id:'t2',k:'run',tx:'reading the reconciliation sheet…'},
+  ]};
+
+function applyHue(){document.documentElement.style.setProperty('--hue',slotColor(PO.slot));}
+function render(){
+  applyHue();
+  document.getElementById('nm').textContent=PO.name;
+  document.getElementById('st').textContent=PO.working?'working':'rested';
+  document.getElementById('dot').classList.toggle('working',PO.working);
+  const t=document.getElementById('thread');
+  if(!PO.thread.length){t.innerHTML=`<div class="empty">${PO.loading?'loading…':'no conversation yet'}</div>`;return;}
+  t.innerHTML=PO.thread.map(e=>{
+    if(e.u)return `<div class="u">${e.tx}</div>`;
+    if(e.k){const run=e.k==='run';const el=e.el?`<span class="el">${e.el.toFixed(1)}s</span>`:'';
+      return `<div class="tl"><span class="d ${run?'run':''}"></span><span class="tx ${e.k==='err'?'err':''}">${e.tx}</span>${el}</div>`;}
+    return `<div class="v">${e.tx}</div>`;
+  }).join('');
+  t.scrollTop=t.scrollHeight;
+}
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+function pushThread(e){PO.thread.push(e);render();}
+const AGENT={};
+AGENT['agent_ready']=function(m){ if(!PO.taskId){PO.taskId=m.task_id;PO.name=m.task_name||'Apprentice';if(m.color_slot!=null&&m.color_slot>=0)PO.slot=m.color_slot;render();} };
+AGENT['agent_spawned']=function(m){ if(m.task_id===PO.taskId){PO.name=m.task_name||PO.name;if(m.color_slot!=null&&m.color_slot>=0)PO.slot=m.color_slot;render();} };
+AGENT['conversation_transcript']=function(m){ if(m.task_id!==PO.taskId)return;
+  PO.thread=(m.turns||[]).map(x=>x.role==='user'?{u:true,tx:x.text}:{u:false,tx:x.text}); PO.loading=false; render(); };
+AGENT['tool_started']=function(m){ if(PO.taskId&&m.task_id&&m.task_id!==PO.taskId)return; PO.working=true; pushThread({id:m.tool_id,k:'run',tx:m.friendly||m.name||'…'}); };
+AGENT['tool_finished']=function(m){ if(PO.taskId&&m.task_id&&m.task_id!==PO.taskId)return; const e=PO.thread.find(x=>x.id===m.tool_id); if(e){e.k=m.is_error?'err':'done';e.el=m.elapsed_s;} PO.working=PO.thread.some(x=>x.k==='run'); render(); };
+AGENT['agent_text']=function(m){ if(PO.taskId&&m.task_id&&m.task_id!==PO.taskId)return; pushThread({u:false,tx:m.text}); };
+AGENT['agent_focus_changed']=function(m){ /* pop-out is pinned to its own strand regardless of focus */ };
+
+window.__onWired=function(){WIRED=true; if(PO.taskId){PO.loading=true;render();sendMsg({type:'transcript_request',task_id:PO.taskId});} };
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+// close → tell the host to close this window
+document.getElementById('close').addEventListener('click',()=>{if(WIRED)sendMsg({type:'popout_close',task_id:PO.taskId});});
+// header = drag handle → a web page can't move its own OS window, so signal the
+// native host (Mac WebSurfaceHost / Windows WebSurface) to drag it. Shared both ways.
+document.querySelector('.hd').addEventListener('mousedown',e=>{if(e.target.closest('#close'))return;sendMsg({type:'__winmove'});});
+// composer → transcript_final to this strand
+const inp=document.getElementById('in');
+inp.addEventListener('keydown',e=>{if(e.key!=='Enter')return;const t=inp.value.trim();if(!t)return;
+  if(WIRED)sendMsg({type:'transcript_final',text:t,task_id:PO.taskId}); pushThread({u:true,tx:t}); inp.value='';});
+
+// boot — host passes the strand via __popout={taskId,name,slot}; else sample
+if(window.__popout){PO.taskId=window.__popout.taskId;PO.name=window.__popout.name||'strand';PO.slot=window.__popout.slot||0;PO.thread=[];PO.loading=true;}
+else if(window.__initTab){PO.slot=parseInt(window.__initTab)||0;}   // demo: slot via 6th webhost arg
+inp.placeholder='message '+PO.name+'…';
+render();
+</script>
+</body>
+</html>

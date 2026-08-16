@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>About Apprentice</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Port of AboutWindow.swift — 520x540 diagnostics surface. Everything needed
+     to operate the kill switch, debug a friend report, audit what's running.
+     Driven by synthetic {type:"about_state"} host frames. */
+  html,body{background:var(--ground);overflow:hidden;height:100%;}
+  body{display:flex;flex-direction:column;position:relative;}
+  .bloom{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0;}
+  .bloom i{position:absolute;border-radius:50%;filter:blur(90px);}
+  .bloom .a{width:420px;height:280px;left:-80px;top:-170px;background:radial-gradient(circle,var(--indigo),transparent 68%);opacity:.10;}
+  .bloom .b{width:360px;height:250px;left:280px;top:-160px;background:radial-gradient(circle,var(--teal),transparent 68%);opacity:.06;}
+  .titlestrip{height:30px;flex:0 0 auto;-webkit-app-region:drag;z-index:1;}
+  .wrap{flex:1;display:flex;flex-direction:column;gap:18px;padding:0 24px 22px;position:relative;z-index:1;overflow:hidden;}
+
+  .head{display:flex;align-items:center;gap:10px;}
+  .mark{width:22px;height:22px;border-radius:6px;object-fit:cover;flex:0 0 auto;}
+  .brand{font-size:18px;font-weight:500;color:var(--ink);}
+  .x{margin-left:auto;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.06);
+    display:flex;align-items:center;justify-content:center;color:var(--dim);cursor:pointer;
+    -webkit-app-region:no-drag;flex:0 0 auto;}
+  .x:hover{color:var(--ink);}
+
+  .sect{display:flex;flex-direction:column;gap:8px;}
+  .stitle{font-size:10px;font-weight:400;letter-spacing:.8px;text-transform:uppercase;color:var(--faint);}
+
+  .kv{display:flex;align-items:center;gap:10px;}
+  .kv .k{font-size:11px;font-weight:300;color:var(--dim);width:90px;flex:0 0 auto;}
+  .kv .v{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .kv .v.copy{cursor:pointer;}
+  .flash{margin-left:auto;font-size:10px;font-weight:300;color:var(--teal);opacity:0;transition:opacity .25s;flex:0 0 auto;}
+  .flash.on{opacity:1;}
+  .cbtn{width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,.05);
+    display:flex;align-items:center;justify-content:center;color:var(--dim);cursor:pointer;flex:0 0 auto;}
+  .cbtn:hover{color:var(--ink);}
+  .kv .v.mono,.kv .v.path{font-family:var(--mono);font-size:11px;}
+  .kv .v.path{color:rgba(243,241,234,.85);}
+  .hint{font-size:10px;font-weight:300;color:var(--faint);padding-left:100px;margin-top:3px;}
+
+  .status{display:flex;align-items:center;gap:8px;}
+  .status i{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:0 0 auto;}
+  .status span{font-size:12px;color:var(--ink);}
+</style>
+</head>
+<body>
+  <div class="bloom"><i class="a"></i><i class="b"></i></div>
+  <div class="titlestrip"></div>
+  <div class="wrap">
+    <div class="head">
+      <img class="mark" src="apprentice-mark.png" alt=""/>
+      <span class="brand">Apprentice</span>
+      <span class="x" onclick="ui('close_about')"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4.6 4.6 11.4 11.4M11.4 4.6 4.6 11.4"/></svg></span>
+    </div>
+
+    <div class="sect">
+      <div class="stitle">Install</div>
+      <div class="kv"><span class="k">App version</span><span class="v copy" id="v-version" onclick="copyRow('version')">—</span><span class="flash" id="f-version">copied</span><span class="cbtn" onclick="copyRow('version')" title="Copy to clipboard"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="8" rx="1.5"/><path d="M10.5 3.5h-6A1.5 1.5 0 0 0 3 5v7"/></svg></span></div>
+      <div>
+        <div class="kv"><span class="k">Install ID</span><span class="v mono copy" id="v-install" onclick="copyRow('install')">—</span><span class="flash" id="f-install">copied</span><span class="cbtn" onclick="copyRow('install')" title="Copy to clipboard"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="8" rx="1.5"/><path d="M10.5 3.5h-6A1.5 1.5 0 0 0 3 5v7"/></svg></span></div>
+        <div class="hint">This is what the owner uses to revoke / unblock your install.</div>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="stitle">Claude account</div>
+      <div id="acct"><div class="status"><i style="background:var(--faint)"></i><span>Checking…</span></div></div>
+    </div>
+
+    <div class="sect">
+      <div class="stitle">Agent process</div>
+      <div class="status" id="agent"><i style="background:var(--faint)"></i><span>—</span></div>
+    </div>
+
+    <div class="sect">
+      <div class="stitle">Diagnostics</div>
+      <div class="kv"><span class="k">Agent log</span><span class="v path" id="v-log">—</span><span class="cbtn" style="margin-left:auto" onclick="ui('reveal_log')" title="Reveal in Finder"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"><path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h2.2l1.4 1.6H12A1.5 1.5 0 0 1 13.5 6v5A1.5 1.5 0 0 1 12 12.5H4A1.5 1.5 0 0 1 2.5 11Z"/></svg></span></div>
+      <div class="kv"><span class="k">Telemetry</span><span class="v" id="v-telemetry" style="white-space:normal">—</span></div>
+      <div class="kv"><span class="k">Access</span><span class="v" id="v-access" style="white-space:normal">—</span></div>
+    </div>
+  </div>
+<script>
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+function ui(action){sendMsg({type:'ui_action',action:action});}
+
+const S={version:'—',install_id:'—',email:'',plan:'',agent_state:'',log_path:'—',telemetry:'—',control_message:''};
+
+const COPYVALS={version:()=>S.version,install:()=>S.install_id,email:()=>S.email};
+function copyRow(id){
+  const v=COPYVALS[id]();if(!v||v==='—')return;
+  navigator.clipboard.writeText(v).then(()=>{
+    const f=document.getElementById('f-'+id);if(!f)return;
+    f.classList.add('on');setTimeout(()=>f.classList.remove('on'),1200);});}
+
+function agentDot(state){
+  const s=(state||'').toLowerCase();
+  if(s.indexOf('crash')>=0||s.indexOf('error')>=0)return 'var(--red)';
+  if(s.indexOf('run')>=0)return 'var(--teal)';
+  if(s.indexOf('start')>=0)return 'var(--amber)';
+  if(s.indexOf('skip')>=0)return 'var(--indigo)';
+  return 'var(--faint)';}
+
+function render(){
+  document.getElementById('v-version').textContent=S.version;
+  document.getElementById('v-install').textContent=S.install_id;
+  const acct=document.getElementById('acct');
+  if(S.email){
+    acct.innerHTML=
+      '<div class="kv" style="margin-bottom:5px"><span class="k">Signed in</span><span class="v copy" id="v-email" onclick="copyRow(\'email\')"></span><span class="flash" id="f-email">copied</span><span class="cbtn" onclick="copyRow(\'email\')" title="Copy to clipboard"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"><rect x="5.5" y="5.5" width="7.5" height="8" rx="1.5"/><path d="M10.5 3.5h-6A1.5 1.5 0 0 0 3 5v7"/></svg></span></div>'+
+      '<div class="kv"><span class="k">Plan</span><span class="v" id="v-plan"></span></div>';
+    document.getElementById('v-email').textContent=S.email;
+    document.getElementById('v-plan').textContent=S.plan||'—';
+  }else{
+    acct.innerHTML='<div class="status"><i style="background:var(--red)"></i><span>Not signed in</span></div>';
+  }
+  const ag=document.getElementById('agent');
+  ag.innerHTML='<i style="background:'+agentDot(S.agent_state)+'"></i><span></span>';
+  ag.querySelector('span').textContent=S.agent_state||'—';
+  document.getElementById('v-log').textContent=S.log_path;
+  document.getElementById('v-telemetry').textContent=S.telemetry;
+  document.getElementById('v-access').textContent=S.control_message||'—';
+}
+
+const AGENT={};
+AGENT['about_state']=function(m){
+  for(const k of ['version','install_id','email','plan','agent_state','log_path','telemetry','control_message'])
+    if(m[k]!=null)S[k]=m[k];
+  render();};
+
+window.__onWired=function(){};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+</script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · call</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* In-call panel — faithful to CallLiveView (CallAssistViews.swift): 340×440
+     opaque hue panel. Top bar (breathing dot · mode toggle / "Wrapping up" ·
+     elapsed · thinking… · N people · collapse · stop), action chips, optional
+     participants editor, insights hero (scrolls, newest first), captions zone
+     behind a toggle. Collapsed = just the bar. Audio capture is the MAIN
+     process's job; this page only speaks the call_* protocol. */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  .panel{position:fixed;top:10px;left:10px;width:340px;display:flex;flex-direction:column;
+    background:var(--surface);border:1px solid var(--hair);border-radius:18px;
+    box-shadow:0 18px 30px rgba(0,0,0,.6);overflow:hidden;}
+  .panel:not(.collapsed){height:440px;}
+
+  /* ── top bar ── */
+  .bar{display:flex;align-items:center;gap:9px;padding:13px 16px;flex:0 0 auto;
+    border-bottom:1px solid var(--hair2);cursor:default;}
+  .bdot{width:7px;height:7px;border-radius:50%;background:var(--teal);color:var(--teal);
+    flex:0 0 auto;animation:breathe 2.6s ease-in-out infinite;}
+  .bdot.err{background:var(--amber);color:var(--amber);}
+  @keyframes breathe{0%,100%{opacity:.5;box-shadow:0 0 0 transparent;}
+    50%{opacity:1;box-shadow:0 0 5px color-mix(in srgb,currentColor 50%,transparent);}}
+  .modes{display:inline-flex;border:1px solid var(--hair);border-radius:999px;flex:0 0 auto;}
+  .seg{font-family:var(--font);font-size:10.5px;font-weight:500;color:var(--dim);
+    padding:3px 9px;background:none;border:0;border-radius:999px;cursor:pointer;}
+  .seg.on{background:rgba(106,123,255,.9);color:#06060A;}
+  .wrap{font-size:12.5px;font-weight:300;color:var(--ink);white-space:nowrap;}
+  .elapsed{font-size:12px;font-weight:300;color:var(--faint);font-variant-numeric:tabular-nums;}
+  .sp{flex:1;min-width:8px;}
+  .thinking{font-size:11px;font-weight:500;color:var(--dim);white-space:nowrap;}
+  .people{font-family:var(--font);font-size:11.5px;font-weight:300;color:var(--dim);
+    background:none;border:0;padding:0;cursor:pointer;white-space:nowrap;}
+  .people.on{color:var(--indigo);}
+  .collapse{font-size:9px;color:var(--faint);background:none;border:0;padding:0 2px;cursor:pointer;}
+  .stopbtn{width:9px;height:9px;border-radius:3px;background:rgba(162,160,150,.8);
+    border:0;padding:0;cursor:pointer;flex:0 0 auto;}
+
+  /* ── action chips ── */
+  .chips{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;flex:0 0 auto;
+    border-bottom:1px solid var(--hair2);scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none;}
+  .chip{flex:0 0 auto;font-family:var(--font);font-size:11.5px;font-weight:500;color:var(--indigo);
+    padding:5px 11px;border-radius:999px;background:rgba(106,123,255,.10);
+    border:1px solid rgba(106,123,255,.30);cursor:pointer;white-space:nowrap;}
+
+  /* ── participants editor ── */
+  .parts{padding:12px 16px;border-bottom:1px solid var(--hair2);flex:0 0 auto;}
+  .pehead{font-size:10px;font-weight:600;letter-spacing:2px;color:var(--faint);}
+  .penone{font-size:12px;font-weight:300;color:var(--faint);margin-top:9px;}
+  .perow{display:flex;align-items:center;gap:10px;margin-top:9px;}
+  .pelbl{font-size:11.5px;font-weight:300;color:var(--dim);width:72px;flex:0 0 auto;}
+  .pein{flex:1;font-family:var(--font);font-size:13px;font-weight:300;color:var(--ink);
+    background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:8px;
+    padding:6px 10px;outline:none;}
+  .pein::placeholder{color:var(--faint);}
+
+  .errhint{padding:9px 16px;font-size:11.5px;font-weight:300;color:var(--amber);
+    border-bottom:1px solid var(--hair2);flex:0 0 auto;line-height:1.4;}
+
+  /* ── insights hero ── */
+  .insights{flex:1;min-height:0;overflow-y:auto;padding:2px 16px;}
+  .insights.empty{display:flex;align-items:center;justify-content:center;overflow:hidden;
+    font-size:12.5px;font-weight:300;color:var(--dim);text-align:center;padding:0 24px;}
+  .ins{padding:13px 0;border-top:1px solid var(--hair2);}
+  .ins:first-child{border-top:0;}
+  .inshead{display:flex;align-items:center;gap:7px;}
+  .insdot{width:5px;height:5px;border-radius:50%;flex:0 0 auto;}
+  .inskind{font-size:10px;font-weight:600;letter-spacing:2.2px;}
+  .instext{font-size:14px;font-weight:300;color:var(--ink);line-height:1.45;margin-top:7px;}
+
+  /* ── captions zone ── */
+  .captoggle{display:flex;align-items:center;gap:7px;width:100%;text-align:left;
+    background:none;border:0;border-top:1px solid var(--hair2);cursor:pointer;
+    font-family:var(--font);font-size:11.5px;font-weight:300;color:var(--faint);
+    padding:11px 16px;flex:0 0 auto;}
+  .cchev{font-size:8px;}
+  .caps{max-height:130px;overflow-y:auto;padding:4px 16px 14px;flex:0 0 auto;}
+  .cap{display:flex;align-items:baseline;gap:6px;margin-top:7px;}
+  .cap:first-child{margin-top:0;}
+  .capspk{font-size:12px;font-weight:500;color:var(--dim);flex:0 0 auto;}
+  .capspk.me{color:var(--indigo);}
+  .captext{font-size:12px;font-weight:300;color:rgba(243,241,234,.82);line-height:1.4;}
+  .interim{font-size:12px;font-weight:300;font-style:italic;color:var(--dim);margin-top:7px;}
+</style>
+</head>
+<body>
+  <div class="panel" id="panel">
+    <div class="bar" id="bar">
+      <span class="bdot" id="bdot"></span>
+      <span id="barmid"></span>
+      <span class="elapsed" id="elapsed">0:00</span>
+      <span class="sp"></span>
+      <span class="thinking" id="thinking" hidden>thinking…</span>
+      <button class="people" id="peopleBtn" title="Name the speakers" hidden></button>
+      <button class="collapse" id="collapseBtn">▾</button>
+      <button class="stopbtn" id="stopBtn" title="Stop"></button>
+    </div>
+    <div id="below" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+      <div class="chips">
+        <button class="chip" data-a="say">What do I say</button>
+        <button class="chip" data-a="recap">Catch me up</button>
+        <button class="chip" data-a="questions">Follow-ups</button>
+        <button class="chip" data-a="factcheck">Fact-check</button>
+      </div>
+      <div class="parts" id="parts" hidden></div>
+      <div class="errhint" id="errhint" hidden></div>
+      <div class="insights empty" id="insights">Listening for something worth saying…</div>
+      <button class="captoggle" id="capToggle"><span class="cchev" id="capChev">▾</span><span id="capLbl">show live captions</span></button>
+      <div class="caps" id="caps" hidden></div>
+    </div>
+  </div>
+<script>
+const NAMES_KEY='apprentice.call.speakerNames', META_KEY='apprentice.call.meta';
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function loadNames(){try{return JSON.parse(localStorage.getItem(NAMES_KEY))||{};}catch(e){return{};}}
+
+// state — mirrors CallAssistManager's @Published set
+const S={state:'listening',mode:localStorage.getItem('apprentice.call.mode')||'remote',
+  elapsed:'0:00',collapsed:false,showParticipants:false,showCaptions:false,
+  assisting:false,assistGen:0,insights:[],captions:[],interim:null,
+  seen:new Set(),names:loadNames(),hint:''};
+
+const isLive=()=>S.state==='listening'||S.state==='summarizing';
+// "Speaker 1" → "Alice"; longest labels first so Speaker 10 isn't clobbered by Speaker 1
+function substitute(t){let out=String(t);
+  for(const k of Object.keys(S.names).filter(k=>S.names[k]).sort((a,b)=>b.length-a.length))
+    out=out.split(k).join(S.names[k]);
+  return out;}
+const displayName=l=>S.names[l]||l;
+const kindColor=k=>k==='answer'?'var(--teal)':k==='action'?'var(--amber)':'var(--indigo)';
+const remoteSpeakers=()=>[...S.seen].filter(s=>s&&s!=='Me').sort();
+function saveNames(){localStorage.setItem(NAMES_KEY,JSON.stringify(S.names));}
+
+// ---------- render ----------
+function renderBar(){
+  document.getElementById('bdot').classList.toggle('err',S.state==='error');
+  const mid=document.getElementById('barmid');
+  if(S.state==='summarizing'){mid.innerHTML='<span class="wrap">Wrapping up</span>';}
+  else{mid.innerHTML='<span class="modes" title="Meeting type — on a call vs in the same room">'+
+    '<button class="seg'+(S.mode==='remote'?' on':'')+'" data-m="remote">Call</button>'+
+    '<button class="seg'+(S.mode==='inperson'?' on':'')+'" data-m="inperson">Room</button></span>';
+    mid.querySelectorAll('.seg').forEach(b=>b.onclick=()=>setMode(b.dataset.m));}
+  document.getElementById('elapsed').textContent=S.elapsed;
+  document.getElementById('thinking').hidden=!S.assisting;
+  const pb=document.getElementById('peopleBtn'),n=S.seen.size;
+  pb.hidden=n===0;
+  pb.textContent=n+' '+(n===1?'voice':'people');
+  pb.classList.toggle('on',S.showParticipants);
+}
+function renderParts(){
+  const p=document.getElementById('parts');
+  p.hidden=!S.showParticipants;
+  if(!S.showParticipants)return;
+  const spk=remoteSpeakers();
+  let h='<div class="pehead">NAME THE SPEAKERS</div>';
+  if(!spk.length)h+='<div class="penone">No other speakers detected yet.</div>';
+  else h+=spk.map(l=>'<div class="perow"><span class="pelbl">'+esc(l)+'</span>'+
+    '<input class="pein" placeholder="name" data-l="'+esc(l)+'" value="'+esc(S.names[l]||'')+'"/></div>').join('');
+  p.innerHTML=h;
+  p.querySelectorAll('.pein').forEach(i=>i.oninput=()=>{
+    const v=i.value.trim();
+    if(v)S.names[i.dataset.l]=v;else delete S.names[i.dataset.l];
+    saveNames();renderInsights();renderCaps();   // not the editor — keep focus
+  });
+}
+function renderHint(){
+  const e=document.getElementById('errhint');
+  e.hidden=!(S.state==='error'&&S.hint);
+  e.textContent=S.hint;
+}
+function renderInsights(){
+  const el=document.getElementById('insights');
+  if(!S.insights.length){el.className='insights empty';el.textContent='Listening for something worth saying…';return;}
+  el.className='insights';
+  el.innerHTML=S.insights.map(i=>'<div class="ins"><div class="inshead">'+
+    '<span class="insdot" style="background:'+kindColor(i.kind)+'"></span>'+
+    '<span class="inskind" style="color:'+kindColor(i.kind)+'">'+esc(i.kind.toUpperCase())+'</span></div>'+
+    '<div class="instext">'+esc(substitute(i.text))+'</div></div>').join('');
+}
+function renderCaps(){
+  document.getElementById('capChev').textContent=S.showCaptions?'▴':'▾';
+  document.getElementById('capLbl').textContent=S.showCaptions?'hide live captions':'show live captions';
+  const c=document.getElementById('caps');
+  c.hidden=!S.showCaptions;
+  if(!S.showCaptions)return;
+  let h=S.captions.map(x=>'<div class="cap"><span class="capspk'+(x.isMe?' me':'')+'">'+
+    esc(displayName(x.speaker))+'</span><span class="captext">'+esc(substitute(x.text))+'</span></div>').join('');
+  if(S.interim)h+='<div class="interim">'+esc(S.interim)+'</div>';
+  c.innerHTML=h;
+  c.scrollTop=c.scrollHeight;
+}
+
+// ---------- controls ----------
+function setMode(m){
+  if((m!=='remote'&&m!=='inperson')||m===S.mode)return;
+  S.mode=m;
+  localStorage.setItem('apprentice.call.mode',m);
+  sendMsg({type:'call_set_mode',mode:m});   // main reconfigures capture
+  renderBar();
+}
+function assistNow(a){
+  if(!isLive())return;
+  sendMsg({type:'call_assist_now',action:a});
+  S.assisting=true;
+  const gen=++S.assistGen;
+  setTimeout(()=>{if(S.assistGen===gen){S.assisting=false;renderBar();}},6000);  // clear even if nothing comes back
+  renderBar();
+}
+document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>assistNow(b.dataset.a));
+document.getElementById('stopBtn').onclick=()=>{
+  sendMsg({type:'call_stop'});
+  S.state='summarizing';       // bar shows "Wrapping up" until call_summary
+  renderBar();
+};
+document.getElementById('collapseBtn').onclick=()=>{
+  S.collapsed=!S.collapsed;
+  document.getElementById('panel').classList.toggle('collapsed',S.collapsed);
+  document.getElementById('below').style.display=S.collapsed?'none':'flex';
+  document.getElementById('collapseBtn').textContent=S.collapsed?'▴':'▾';
+};
+document.getElementById('peopleBtn').onclick=()=>{S.showParticipants=!S.showParticipants;renderBar();renderParts();};
+document.getElementById('capToggle').onclick=()=>{S.showCaptions=!S.showCaptions;renderCaps();};
+// drag the frameless window by the bar (not its controls)
+document.getElementById('bar').addEventListener('mousedown',e=>{
+  if(e.target.closest('button'))return;
+  sendMsg({type:'__winmove'});
+});
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+const AGENT={};
+
+AGENT['call_state']=function(m){
+  // listening/stopped need no UI change (mirrors the Swift manager); only error does.
+  if(m.state!=='error')return;
+  S.state='error';
+  S.hint=m.reason==='no_deepgram_key'
+    ?'Needs a Deepgram key (~/.config/apprentice/deepgram.key)'
+    :(m.reason||'');
+  renderBar();renderHint();
+};
+AGENT['call_transcript']=function(m){
+  const spk=m.speaker||'';
+  if(spk){S.seen.add(spk);}
+  if(m.is_final){
+    S.captions.push({speaker:spk,text:m.text||'',isMe:m.channel==='mic'});
+    if(S.captions.length>6)S.captions=S.captions.slice(-6);
+    S.interim=null;
+  }else{
+    S.interim=spk+': '+(m.text||'');
+  }
+  renderBar();renderCaps();
+  if(S.showParticipants)renderParts();
+};
+AGENT['call_insight']=function(m){
+  S.assisting=false;
+  const fresh=[];
+  (m.points||[]).forEach(p=>{
+    const t=String(p.text||'').trim();
+    if(!t||fresh.some(x=>x.text===t))return;
+    fresh.push({kind:String(p.kind||'point').toLowerCase(),text:t});
+  });
+  if(!fresh.length){renderBar();return;}
+  // whole call's talking points, newest first, dedup by text, cap 60
+  const merged=fresh.slice();
+  for(const old of S.insights)if(!merged.some(x=>x.text===old.text))merged.push(old);
+  S.insights=merged.slice(0,60);
+  renderBar();renderInsights();
+};
+AGENT['call_summary']=function(m){
+  // stash recap meta ("m:ss · N people") for the recap/minutes windows, then
+  // ask main to close this panel — it opens the recap with this same summary.
+  localStorage.setItem(META_KEY,JSON.stringify({elapsed:S.elapsed,count:S.seen.size}));
+  S.state='done';
+  sendMsg({type:'ui_action',action:'call_close',value:'live'});
+};
+AGENT['call_elapsed']=function(m){
+  const s=Math.max(0,Math.round(m.seconds||0));
+  S.elapsed=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  document.getElementById('elapsed').textContent=S.elapsed;
+};
+
+window.__onWired=function(){WIRED=true;sendMsg({type:'call_start',mode:S.mode});};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+renderBar();renderCaps();
+</script>
+</body>
+</html>

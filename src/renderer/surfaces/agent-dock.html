@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice Hearth</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* The hearth = a fully-transparent canvas. Each live agent is a soft blurred
+     radial hue-pool ("strand"); hovering blooms a frameless organic glow card.
+     Faithful to AgentDockManager.swift's NotchHearthView (the triangle dock is dead).
+     NOTE: the strands use their OWN 4-slot palette, NOT the Hue indigo/teal tokens. */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+
+  /* pool: top-center (notch), 34px down; strands overlap via negative margin;
+     mix-blend screen approximates the additively-blended pool. */
+  .pool{position:fixed;top:34px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;height:120px;}
+  .mote{cursor:pointer;flex:0 0 auto;position:relative;display:flex;align-items:center;justify-content:center;}
+  /* resize grab-dot at the pool's lower-right, revealed on hover */
+  .grab{position:absolute;right:-8px;bottom:26px;width:11px;height:11px;border-radius:50%;
+    background:rgba(255,255,255,.92);border:.5px solid rgba(0,0,0,.25);box-shadow:0 0 2px rgba(0,0,0,.3);
+    cursor:nwse-resize;opacity:0;transition:opacity .15s;pointer-events:none;}
+  .pool:hover .grab{opacity:1;pointer-events:auto;}
+  .strand{border-radius:50%;mix-blend-mode:screen;pointer-events:none;will-change:transform,opacity;}
+  .strand.budin{animation:budin .7s cubic-bezier(.4,0,.2,1) both;}
+  .strand.attn{animation:breathe 1.571s ease-in-out infinite;}
+  @keyframes budin{from{transform:scale(.15);opacity:0;}to{transform:scale(1);}}
+  @keyframes breathe{0%,100%{transform:scale(.94);}50%{transform:scale(1.04);}}
+
+  /* frameless bloom card */
+  .card{position:fixed;width:300px;opacity:0;pointer-events:none;
+    transition:opacity .18s ease-in-out;z-index:5;}
+  .card.on{opacity:1;pointer-events:auto;}
+  .card .bloom{position:absolute;inset:0;z-index:0;pointer-events:none;}
+  .card .bloom>div{position:absolute;}
+  .card .content{position:relative;z-index:1;padding:24px 30px;color:#fff;
+    text-shadow:0 1px 1.3px rgba(0,0,0,.35);}
+  .card .nm{font-size:12px;font-weight:500;opacity:.72;line-height:1;}
+  .feed{margin-top:4px;display:flex;flex-direction:column;gap:6px;}
+  .arow{display:flex;align-items:flex-start;gap:6px;}
+  .arow .mk{font-family:var(--mono);font-size:11px;font-weight:700;width:13px;flex:0 0 auto;line-height:1.3;}
+  .arow .bd{font-size:12px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .arow .bd.said{font-style:italic;opacity:.9;}
+  .arow .el{font-family:var(--mono);font-size:10px;opacity:.4;margin-left:auto;flex:0 0 auto;line-height:1.3;}
+  .mk.run{color:#E0A416;}.mk.done{color:#2FA85A;}.mk.err{color:#D14B3F;}.mk.said{color:rgba(255,255,255,.45);}
+  .bd.run{opacity:.92;}.bd.done{opacity:.66;}.bd.err{opacity:.85;}
+  .empty{font-size:13px;opacity:.6;padding-top:2px;}
+  .verbs{display:flex;gap:20px;padding-top:8px;}
+  .verb{font-size:14px;font-weight:600;cursor:pointer;}
+  .verb.reply,.verb.pop{color:#fff;}.verb.stop{color:#FFE3DC;}
+  .composer{display:flex;align-items:center;gap:8px;margin-top:8px;padding:7px 10px;
+    background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.30);border-radius:9px;}
+  .composer input{flex:1;background:none;border:0;outline:0;color:#fff;font-family:var(--font);font-size:12.5px;}
+  .composer input::placeholder{color:rgba(255,255,255,.5);}
+  .composer .send{font-size:14px;font-weight:600;cursor:pointer;opacity:0;}
+  .composer.has .send{opacity:1;}
+</style>
+</head>
+<body>
+  <div class="pool" id="pool"></div>
+  <div class="card" id="card"></div>
+
+<script>
+const SLOT=['#5AB6FF','#FF6B6B','#FFD93D','#4ADE80'];
+const slotColor=s=>SLOT[Math.max(0,s)%4];
+// notch placement scale (0.86) × the user's resize multiplier (0.5–2.0, persisted)
+let userScale=Math.min(2,Math.max(0.5,parseFloat(localStorage.getItem('hearthScale')||'1')));
+let freeMode=localStorage.getItem('hearthFree')==='1';
+let customCX=parseFloat(localStorage.getItem('hearthCX')||'0.5');
+let customCY=parseFloat(localStorage.getItem('hearthCY')||'0.12');
+function poolScale(){return 0.86*userScale;}
+// darken a hex toward black by f (bloom hue)
+function darken(hex,f){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.round(r*(1-f));g=Math.round(g*(1-f));b=Math.round(b*(1-f));return `rgb(${r},${g},${b})`;}
+function el(h){const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild;}
+function rgba(rgb,a){return rgb.replace('rgb(','rgba(').replace(')',`, ${a})`);}
+// bloom = ambient bleed + a comet of 3 ellipse-clipped radial lobes, sized to the
+// card (w,h) with explicit radii (h*0.73–0.80) — faithful to bloomBackground.
+function buildBloom(box,w,h,hue,warm){
+  box.innerHTML='';
+  const cen='position:absolute;left:50%;top:50%;';
+  const L=css=>{const d=document.createElement('div');d.style.cssText=css;return d;};
+  // faint ambient bleed, biased down+right, heavily blurred
+  box.appendChild(L(`${cen}width:${(w*1.33)|0}px;height:${(h*1.11)|0}px;transform:translate(-50%,-50%) translate(24px,10px);border-radius:50%;background:${hue};filter:blur(38px);opacity:.18;`));
+  // comet (light blur preserves the asymmetric structure)
+  const comet=L(`${cen}width:${w}px;height:${h}px;transform:translate(-50%,-50%);filter:blur(10px);`);
+  const lobe=(lw,lh,r,cx,cy,stops)=>L(`${cen}width:${lw|0}px;height:${lh|0}px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle ${r|0}px at ${cx}% ${cy}%, ${stops});`);
+  comet.appendChild(lobe(w,h,h*0.73,24,60,`${rgba(warm,.70)} 0%, ${rgba(hue,.62)} 50%, transparent 100%`));       // warm core, lower-left
+  comet.appendChild(lobe(w*1.13,h*0.99,h*0.74,52,42,`${rgba(hue,.50)} 0%, transparent 100%`));                     // mid body, slightly high
+  comet.appendChild(lobe(w*1.24,h,h*0.80,80,66,`${rgba(hue,.42)} 0%, transparent 100%`));                          // trailing tail, lower-right
+  box.appendChild(comet);
+}
+
+// ---------- state (sample = APPRENTICE_HEARTH_DEMO) ----------
+let DOCK={focusedId:'a-loan',primaryId:'a-loan',hoveredId:null,replyId:null,
+  agents:[
+    {id:'a-loan',name:'Loan tape',slot:0,isPrimary:true,needs:false,justDone:false,
+     acts:[{k:'said',tx:'Reconciled 612 of 624 rows — 12 need your eyes.'},{k:'done',tx:'matched bank export',el:4.6},{k:'done',tx:'opened loan_tape.xlsx',el:0.8}]},
+    {id:'a-ic',name:'IC memo',slot:1,needs:false,justDone:false,
+     acts:[{k:'said',tx:'Draft is tightened — cut two hedges.'},{k:'done',tx:'revised section 3',el:2.1}]},
+    {id:'a-res',name:'Research',slot:2,needs:true,justDone:false,
+     acts:[{k:'run',tx:'gathering comparable raises…'},{k:'done',tx:'found 8 sources',el:3.4}]},
+  ]};
+
+// ---------- render pool ----------
+let _rendered=new Set();
+function applyPoolPosition(){
+  const pool=document.getElementById('pool');
+  if(freeMode){pool.style.top=(customCY*innerHeight)+'px';pool.style.left=(customCX*innerWidth)+'px';
+    pool.style.transform='translate(-50%,-50%)';}
+  else{pool.style.top='34px';pool.style.left='50%';pool.style.transform='translateX(-50%)';}
+}
+function renderPool(){
+  const pool=document.getElementById('pool');
+  const ps=poolScale(), idleD=92*ps, attnD=112*ps, overlap=-(92*0.42)*ps;
+  pool.innerHTML='';
+  DOCK.agents.forEach(a=>{
+    const attn=a.needs||a.justDone, d=attn?attnD:idleD, c=slotColor(a.slot);
+    const grad=attn
+      ? `radial-gradient(circle closest-side, rgba(255,255,255,.5) 0%, ${c} 34%, transparent 100%)`
+      : `radial-gradient(circle closest-side, ${c} 0%, ${c} 36%, transparent 100%)`;
+    const isNew=!_rendered.has(a.id);
+    const mote=el(`<div class="mote" data-id="${a.id}"></div>`);
+    Object.assign(mote.style,{width:d+'px',height:d+'px',margin:`0 ${overlap/2}px`});   // hit box = strand Ø
+    const s=el(`<div class="strand ${attn?'attn':''} ${isNew?'budin':''}"></div>`);
+    Object.assign(s.style,{width:d+'px',height:d+'px',background:grad,
+      filter:`blur(${(d*0.085).toFixed(1)}px)`,opacity:attn?0.85:0.66});
+    mote.appendChild(s);
+    mote.addEventListener('mouseenter',()=>setHover(a.id));
+    mote.addEventListener('mouseleave',()=>setHover(null));
+    mote.addEventListener('click',()=>{if(!_dragMoved)focusAgent(a.id);});
+    pool.appendChild(mote);
+    _rendered.add(a.id);
+  });
+  // resize grab-dot at the pool's lower-right (free mode only, on pool hover)
+  const grab=el(`<div class="grab" id="grab"></div>`);
+  pool.appendChild(grab);
+  installResize(grab);
+  _rendered=new Set([..._rendered].filter(id=>DOCK.agents.some(a=>a.id===id)));
+  applyPoolPosition();
+}
+
+// ---------- pool drag (reposition) + resize (scale) ----------
+let _dragMoved=false;
+function installPoolDrag(){
+  const pool=document.getElementById('pool');
+  pool.addEventListener('mousedown',e=>{
+    if(e.target.closest('.grab'))return;            // resize handles its own drag
+    const sx=e.clientX, sy=e.clientY;
+    const r=pool.getBoundingClientRect();
+    const startCX=r.left+r.width/2, startCY=r.top+r.height/2;
+    _dragMoved=false;
+    const move=ev=>{
+      const dx=ev.clientX-sx, dy=ev.clientY-sy;
+      if(!_dragMoved && Math.hypot(dx,dy)<5)return;
+      if(!_dragMoved && ((window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)||(window.chrome&&window.chrome.webview))){ _dragMoved=true; document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up); sendMsg({type:"__winmove"}); setTimeout(function(){_dragMoved=false;},400); return; }  // minimumDistance 5 → click vs drag
+      _dragMoved=true; freeMode=true;
+      customCX=Math.min(0.98,Math.max(0.02,(startCX+dx)/innerWidth));
+      customCY=Math.min(0.98,Math.max(0.02,(startCY+dy)/innerHeight));
+      applyPoolPosition();
+      if(DOCK.hoveredId)showCard(DOCK.hoveredId);
+    };
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);
+      if(_dragMoved){localStorage.setItem('hearthFree','1');localStorage.setItem('hearthCX',customCX);localStorage.setItem('hearthCY',customCY);}
+      setTimeout(()=>{_dragMoved=false;},0);        // let the suppressed click fire first
+    };
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  });
+}
+function installResize(grab){
+  grab.addEventListener('mousedown',e=>{
+    e.stopPropagation();
+    const sx=e.clientX, sy=e.clientY, start=userScale;
+    const move=ev=>{userScale=Math.min(2,Math.max(0.5,start+((ev.clientX-sx)+(ev.clientY-sy))/240));renderPool();
+      if(DOCK.hoveredId)showCard(DOCK.hoveredId);};
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);
+      localStorage.setItem('hearthScale',userScale.toFixed(3));};
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  });
+}
+
+// ---------- hover card ----------
+// Native-driven hover (macOS background overlay gets no real mouse-moved events):
+// the host feeds the cursor in viewport coords; we hit-test hover ourselves.
+window.__hostCursor=function(x,y,over){
+  // NOTE: setHover(null) starts a 250ms hide timer but keeps hoveredId set; calling
+  // it every tick would perpetually reset the timer → never hides. Only start once
+  // (guard on _hoverClear not already pending).
+  if(!over){ if(DOCK.hoveredId&&!_hoverClear)setHover(null); return; }
+  const el=document.elementFromPoint(x,y);
+  const mote=el&&el.closest?el.closest('.mote'):null;
+  const card=el&&el.closest?el.closest('#card'):null;
+  if(mote){ if(DOCK.hoveredId!==mote.dataset.id)setHover(mote.dataset.id);
+            else if(_hoverClear){clearTimeout(_hoverClear);_hoverClear=null;} }
+  else if(card){ if(_hoverClear){clearTimeout(_hoverClear);_hoverClear=null;} }
+  else { if(DOCK.hoveredId&&!_hoverClear)setHover(null); }
+};
+let _hoverClear=null;
+function setHover(id){
+  if(id){if(_hoverClear){clearTimeout(_hoverClear);_hoverClear=null;}
+    const a=DOCK.agents.find(x=>x.id===id);if(a)a.justDone=false;
+    DOCK.hoveredId=id;showCard(id);}
+  else{if(_hoverClear)clearTimeout(_hoverClear);
+    _hoverClear=setTimeout(()=>{DOCK.hoveredId=null;DOCK.replyId=null;hideCard();},250);}
+}
+function hideCard(){document.getElementById('card').classList.remove('on');if(typeof reportHotRect==='function')reportHotRect();}
+function showCard(id){
+  const a=DOCK.agents.find(x=>x.id===id);if(!a)return;
+  const card=document.getElementById('card');
+  const hue=darken(slotColor(a.slot),0.10), warm='rgb(255,251,237)';
+  let feed='';
+  if(!a.acts||!a.acts.length){
+    feed=`<div class="empty">${a.id===DOCK.focusedId?'Focused · waiting for you':'Idle in background'}</div>`;
+  }else{
+    feed='<div class="feed">'+a.acts.slice(0,6).map(e=>{
+      const mk={run:['run','⋯'],done:['done','✓'],err:['err','✗'],said:['said','“']}[e.k]||['said','“'];
+      const el2=(e.k==='done'||e.k==='err')&&e.el?`<span class="el">${e.el.toFixed(1)}s</span>`:'';
+      return `<div class="arow"><span class="mk ${mk[0]}">${mk[1]}</span><span class="bd ${e.k==='said'?'said':mk[0]}">${e.tx}</span>${el2}</div>`;
+    }).join('')+'</div>';
+  }
+  const replying=DOCK.replyId===id;
+  const composer=replying?`<div class="composer" id="comp"><input placeholder="Type a message…" id="compi"/><span class="send" id="comps">↑</span></div>`:'';
+  card.innerHTML=`
+    <div class="bloom" id="bloomL"></div>
+    <div class="content">
+      <div class="nm">${a.name}</div>
+      ${feed}
+      <div class="verbs"><span class="verb reply">Reply</span><span class="verb pop">Pop out</span><span class="verb stop">Stop</span></div>
+      ${composer}
+    </div>`;
+  // build the bloom sized to the card's actual content (mirrors the Swift
+  // GeometryReader): 3 ellipse-clipped radial lobes + a faint ambient bleed.
+  card.style.left='-9999px';card.classList.add('on');           // measure off-screen
+  const cw=card.offsetWidth||300, ch=card.offsetHeight||150;
+  buildBloom(document.getElementById('bloomL'),cw,ch,hue,warm);
+  // position: centered under the hovered strand, blooming downward — or up if the
+  // pool sits low (mirrors the Swift free-mode "bloom toward screen interior")
+  const mote=document.querySelector(`.mote[data-id="${id}"]`);
+  const r=mote?mote.getBoundingClientRect():{left:innerWidth/2,width:0,top:34,bottom:130};
+  let x=r.left+r.width/2-150; x=Math.max(12,Math.min(x,innerWidth-312));
+  let y=r.bottom+12; if(!(window.chrome&&window.chrome.webview) && y+ch>innerHeight-12) y=Math.max(12,r.top-ch-12);
+  card.style.left=x+'px'; card.style.top=y+'px';
+  card.classList.add('on');
+  if(typeof reportHotRect==='function')reportHotRect();
+  card.onmouseenter=()=>{if(_hoverClear){clearTimeout(_hoverClear);_hoverClear=null;}};
+  card.onmouseleave=()=>setHover(null);
+  card.querySelector('.verb.reply').onclick=()=>{DOCK.replyId=replying?null:id;showCard(id);
+    if(!replying)setTimeout(()=>{const i=document.getElementById('compi');if(i)i.focus();},30);};
+  card.querySelector('.verb.pop').onclick=()=>{if(WIRED)sendMsg({type:'agent_pop_out',task_id:id,name:a.name,slot:a.slot});};
+  card.querySelector('.verb.stop').onclick=()=>{if(WIRED)sendMsg({type:'runner_interrupt',reason:'user stop button',task_id:id});};
+  if(replying){const i=document.getElementById('compi'),comp=document.getElementById('comp');
+    i.addEventListener('input',()=>comp.classList.toggle('has',i.value.trim().length>0));
+    const send=()=>{const t=i.value.trim();if(!t)return;if(WIRED)sendMsg({type:'transcript_final',text:t,task_id:id});
+      pushAct(a,{k:'said',tx:t});i.value='';comp.classList.remove('has');DOCK.replyId=null;showCard(id);};
+    i.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send();}});
+    document.getElementById('comps').onclick=send;}
+}
+
+// ---------- interactions ----------
+function focusAgent(id){
+  // clicking the already-focused strand returns to primary
+  if(id===DOCK.focusedId){if(DOCK.primaryId&&DOCK.primaryId!==id){const p=DOCK.agents.find(x=>x.id===DOCK.primaryId);if(WIRED){sendMsg({type:'agent_focus',task_id:DOCK.primaryId});sendMsg({type:'ui_action',action:'focus_color',value:p?p.slot:0});}}return;}
+  const a=DOCK.agents.find(x=>x.id===id);
+  if(WIRED){sendMsg({type:'agent_focus',task_id:id});sendMsg({type:'ui_action',action:'focus_color',value:a?a.slot:0});}
+}
+function pushAct(a,e){a.acts=a.acts||[];a.acts.unshift(e);if(a.acts.length>8)a.acts.length=8;}
+
+// ---------- live wire (same native bridge as inspector/summon) ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+function agentFor(id){return id?DOCK.agents.find(a=>a.id===id):DOCK.agents.find(a=>a.id===DOCK.focusedId);}
+function upsert(o){let a=DOCK.agents.find(x=>x.id===o.id);
+  if(!a){a={id:o.id,name:o.name,slot:o.slot==null?-1:o.slot,isPrimary:!!o.isPrimary,needs:false,justDone:false,acts:[],bornAt:Date.now()};DOCK.agents.push(a);}
+  else{if(o.name)a.name=o.name;if(o.slot!=null&&o.slot>=0)a.slot=o.slot;if(o.isPrimary)a.isPrimary=true;}
+  return a;}
+function refreshCard(id){if(DOCK.hoveredId===id)showCard(id);}
+
+const AGENT={};
+AGENT['agent_ready']=function(m){DOCK.agents=[];_rendered=new Set();const a=upsert({id:m.task_id,name:m.task_name||'Apprentice',slot:m.color_slot,isPrimary:m.is_primary});
+  DOCK.focusedId=m.task_id;if(m.is_primary)DOCK.primaryId=m.task_id;renderPool();};
+AGENT['agent_spawned']=function(m){upsert({id:m.task_id,name:m.task_name||'Untitled',slot:m.color_slot});renderPool();};
+AGENT['agent_list']=function(m){
+  const list=m.agents||[];
+  // an empty snapshot = the agent has no LIVE runners (e.g. Windows, where the
+  // primary's runner failed to spawn). That must NOT wipe the dock — keep the
+  // primary the agent_ready push already gave us.
+  if(!list.length)return;
+  const prev={};DOCK.agents.forEach(a=>prev[a.id]=a);
+  DOCK.agents=list.map(x=>{const p=prev[x.task_id]||{};return {id:x.task_id,name:x.task_name||'Untitled',slot:x.color_slot==null?-1:x.color_slot,isPrimary:p.isPrimary||!!x.is_primary,
+    needs:p.needs||false,justDone:p.justDone||false,acts:p.acts||[],bornAt:p.bornAt||Date.now()};});
+  if(m.focused_task_id)DOCK.focusedId=m.focused_task_id;
+  DOCK.agents.forEach(a=>{if(a.isPrimary)DOCK.primaryId=a.id;});renderPool();};
+AGENT['agent_focus_changed']=function(m){DOCK.focusedId=m.task_id;const a=agentFor(m.task_id);if(a){a.needs=false;a.justDone=false;}renderPool();refreshCard(m.task_id);};
+AGENT['agent_archived']=function(m){DOCK.agents=DOCK.agents.filter(a=>a.id!==m.task_id);renderPool();if(DOCK.hoveredId===m.task_id)hideCard();};
+AGENT['agent_turn_complete']=function(m){const a=agentFor(m.task_id);if(a&&a.id!==DOCK.focusedId){a.justDone=true;renderPool();}};
+AGENT['agent_progress']=function(m){const a=agentFor(m.task_id);if(a){a.turns=m.turn_count;a.ctx=Math.min(1,(m.context_tokens||0)/(m.context_window||200000));}};
+AGENT['tool_started']=function(m){const a=agentFor(m.task_id);if(!a)return;pushAct(a,{id:m.tool_id,k:'run',tx:m.friendly||m.name||'…'});refreshCard(a.id);};
+AGENT['tool_finished']=function(m){const a=agentFor(m.task_id);if(!a)return;const e=(a.acts||[]).find(x=>x.id===m.tool_id);
+  if(e){e.k=m.is_error?'err':'done';e.el=m.elapsed_s;}if(m.is_error&&a.id!==DOCK.focusedId){a.needs=true;renderPool();}refreshCard(a.id);};
+AGENT['agent_text']=function(m){const a=agentFor(m.task_id);if(!a)return;pushAct(a,{k:'said',tx:m.text});refreshCard(a.id);};
+
+window.__onWired=function(){WIRED=true;sendMsg({type:'agent_list'});};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+// boot (sample demo strands render immediately; live data replaces on agent_ready/list)
+renderPool();
+installPoolDrag();
+function reportHotRect(){if(!(window.chrome&&window.chrome.webview)&&!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent))return;var p=document.getElementById("pool").getBoundingClientRect();var x=p.left,y=p.top,r=p.right,b=p.bottom;var c=document.getElementById("card");if(c&&c.classList.contains("on")){var q=c.getBoundingClientRect();x=Math.min(x,q.left);y=Math.min(y,q.top);r=Math.max(r,q.right);b=Math.max(b,q.bottom);}var PAD=40;x-=PAD;y-=PAD;r+=PAD;b+=PAD;sendMsg({type:"__hotrect",x:Math.round(x),y:Math.round(y),w:Math.round(r-x),h:Math.round(b-y)});}
+setInterval(reportHotRect,150);
+window.addEventListener('resize',()=>{if(window.chrome&&window.chrome.webview)return;applyPoolPosition();if(DOCK.hoveredId)showCard(DOCK.hoveredId);});
+</script>
+</body>
+</html>

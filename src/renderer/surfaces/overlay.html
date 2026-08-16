@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice Overlay</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* The presence overlay = one full-screen, transparent, click-through surface per
+     display. Faithful port of OverlayWindow.swift (hue orb + bloom bubbles + toast),
+     AnnotationLayer.swift (light-drawn shapes + point bloom) and the CompanionManager
+     bubble/toast state machine. All coordinates arrive LOCAL to this display in CSS
+     px, y-down from top-left — rendered exactly where told, no coordinate math here.
+     THERMAL: the rAF loop is gated — it runs only while the orb is visible, the
+     cursor spring is settling under a live bubble, or shapes are entering/leaving;
+     never a busy loop at rest. Orb-only animation is capped at 30fps (the native
+     TimelineView cap from the 2026-08-10 thermal audit). */
+  html{pointer-events:none;}
+  html,body{overflow:hidden;background:transparent;height:100%;}
+
+  /* layers — native ZStack order: bubbles < orb < annotation layer */
+  #spoken,#thinking,#toast{z-index:1;}
+  #orb{z-index:2;} #cv{z-index:3;} #marks{z-index:4;} #pt{z-index:5;}
+
+  /* ---- hue orb: pure colour-light, gradient set from JS, motion is the state ---- */
+  #orb{position:fixed;left:0;top:0;border-radius:50%;visibility:hidden;opacity:0;
+    will-change:transform,opacity;}
+  #lobe{position:absolute;left:50%;top:50%;border-radius:50%;display:none;
+    background:radial-gradient(closest-side circle,rgba(255,255,255,.5) 0%,rgba(255,255,255,0) 100%);}
+
+  /* ---- bloom bubbles (spoken / thinking / toast) — BloomBubbleBackground port ---- */
+  .bubble{position:fixed;max-width:320px;transform-origin:top left;
+    opacity:0;transform:scale(.85);
+    transition:transform .32s cubic-bezier(.34,1.3,.5,1),opacity .32s ease-out;}
+  .bubble.in{opacity:1;transform:scale(1);}
+  .bubble.out{opacity:0;transform:scale(1);transition:opacity .25s ease-out;}
+  .bubble.soft{transform:none;transition:opacity .18s ease-out;}   /* thinking/toast: fade only */
+  .bubble.soft.in{transform:none;}
+  .bloom{position:absolute;inset:0;border-radius:18px;}
+  .bloom::before{content:"";position:absolute;inset:-5px -6px;border-radius:26px;   /* halo — the bubble emits light */
+    background:var(--tintD);filter:blur(17px);opacity:.42;}
+  .bloom::after{content:"";position:absolute;inset:0;border-radius:18px;            /* clean luminous lozenge */
+    background:radial-gradient(120% 120% at 50% 40%,rgba(255,252,242,.26),transparent 62%),var(--tintD);
+    filter:blur(2.2px);opacity:.92;}
+  .sheen{position:absolute;inset:0;border-radius:18px;overflow:hidden;display:none;} /* thinking shimmer */
+  .sheen::before{content:"";position:absolute;top:-35%;bottom:-35%;width:50%;left:-60%;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.38),transparent);
+    transform:rotate(14deg);filter:blur(5px);}
+  .bubble.in .sheen::before{animation:sweep 2.4s linear infinite;}
+  @keyframes sweep{from{left:-60%;}to{left:110%;}}
+  .btxt{position:relative;z-index:1;display:-webkit-box;-webkit-box-orient:vertical;
+    overflow:hidden;color:#fff;line-height:1.35;white-space:pre-wrap;overflow-wrap:break-word;}
+  #spoken .btxt{padding:16px 22px;font-size:12px;font-weight:500;-webkit-line-clamp:6;
+    text-shadow:0 0 2.6px rgba(0,0,0,.32);}
+  #thinking{max-width:300px;}
+  #thinking .btxt{padding:14px 20px;font-size:11px;font-style:italic;font-weight:400;
+    color:rgba(255,255,255,.88);-webkit-line-clamp:3;text-shadow:0 0 2.4px rgba(0,0,0,.3);}
+  #thinking .sheen{display:block;}
+  #toast{max-width:300px;--tintD:#EBBE55;}   /* amber bloom — a notice, not a reply */
+  #toast .btxt{padding:13px 20px;font-size:12px;font-weight:500;
+    color:rgba(255,255,255,.95);-webkit-line-clamp:3;text-shadow:0 0 2.6px rgba(0,0,0,.32);}
+
+  /* ---- annotation layer ---- */
+  #cv,#marks,#pt{position:fixed;inset:0;}
+  /* whisper — the "why" pill riding above a highlight, in the summon language */
+  .whisper{position:fixed;display:flex;align-items:center;gap:7px;padding:7px 12px;
+    border-radius:999px;background:rgba(0,0,0,.5);
+    -webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3);
+    border:1px solid color-mix(in srgb,var(--tint) 40%,transparent);
+    box-shadow:0 6px 28px rgba(0,0,0,.4);white-space:nowrap;
+    font-size:12.5px;font-weight:300;color:#F3F1EA;
+    opacity:0;transform:translate(-50%,-50%) translateY(6px);
+    transition:opacity .3s ease-out,transform .3s ease-out;}
+  .whisper .dot{width:6px;height:6px;border-radius:50%;background:var(--tint);flex:0 0 auto;
+    box-shadow:0 0 10px var(--tint);}
+  .whisper.in,.pt.in .whisper{opacity:1;transform:translate(-50%,-50%);}
+  /* hand label — free handwriting floating over the screen, no box */
+  .hand{position:fixed;font-family:"Bradley Hand","Segoe Print","Comic Sans MS",cursive;
+    font-size:19px;font-weight:700;color:#F3F1EA;white-space:nowrap;
+    text-shadow:0 0 4px rgba(0,0,0,.85),0 0 16px rgba(0,0,0,.55),
+      0 0 28px color-mix(in srgb,var(--tint) 35%,transparent);
+    opacity:0;transform:translate(-50%,-50%) translateY(6px);
+    transition:opacity .3s ease-out,transform .3s ease-out;}
+  .hand.in{opacity:1;transform:translate(-50%,-50%);}
+  /* numbered step badge (1·2·3 walkthrough callout) */
+  .badge{position:fixed;width:26px;height:26px;border-radius:50%;background:var(--tint);
+    border:1.5px solid rgba(255,255,255,.85);color:#fff;font-size:14px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 16px color-mix(in srgb,var(--tint) 80%,transparent);
+    opacity:0;transform:translate(-50%,-50%) scale(.9);
+    transition:opacity .45s ease-out,transform .45s cubic-bezier(.3,1.2,.4,1);}
+  .badge.in{opacity:1;transform:translate(-50%,-50%) scale(1);}
+  .whisper.out,.hand.out,.badge.out{opacity:0 !important;transition:opacity .4s ease-out;}
+
+  /* ---- pointer bloom (overlay_point): hue blooms over the target — Power 01 ---- */
+  .pt-bloom{position:fixed;border-radius:50%;filter:blur(7px);opacity:0;transform:scale(.4);
+    transition:transform .55s cubic-bezier(.3,1.18,.35,1),opacity .45s ease-out;}
+  .pt-box{position:fixed;border-radius:5px;border:2px solid;opacity:0;transform:scale(.92);
+    transition:transform .55s cubic-bezier(.3,1.18,.35,1),opacity .45s ease-out;}
+  .pt.in .pt-bloom,.pt.in .pt-box{opacity:1;transform:scale(1);}
+  .pt.out .pt-bloom,.pt.out .pt-box,.pt.out .whisper{opacity:0;transition:opacity .4s ease-out;}
+</style>
+</head>
+<body>
+  <canvas id="cv"></canvas>
+  <div id="marks"></div>
+  <div id="pt"></div>
+  <div id="orb"><div id="lobe"></div></div>
+  <div id="spoken"  class="bubble"><div class="bloom"></div><div class="btxt"></div></div>
+  <div id="thinking" class="bubble soft"><div class="bloom"></div><div class="sheen"></div><div class="btxt"></div></div>
+  <div id="toast"   class="bubble soft"><div class="bloom"></div><div class="btxt"></div></div>
+<script>
+'use strict';
+// ---------- helpers ----------
+function hx(c){c=String(c||'').replace('#','');if(c.length===3)c=c.replace(/./g,x=>x+x);
+  return [parseInt(c.slice(0,2),16)||0,parseInt(c.slice(2,4),16)||0,parseInt(c.slice(4,6),16)||0];}
+function rgba(c,a){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';}
+function hex(c){return '#'+c.map(v=>v.toString(16).padStart(2,'0')).join('');}
+function darken(c,f){return c.map(v=>Math.round(v*(1-f)));}          // bloomDarken port
+function clamp(v,a,b){return v<a?a:v>b?b:v;}
+function clampLX(x){return clamp(x,90,innerWidth-90);}               // AnnotationLayer.clampX
+function grow(r,dx,dy){return {x:r.x-dx,y:r.y-dy,w:r.w+2*dx,h:r.h+2*dy};}
+
+const orb=document.getElementById('orb'), lobe=document.getElementById('lobe');
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const marks=document.getElementById('marks'), ptHost=document.getElementById('pt');
+
+const HUE_PX={small:44,regular:60,large:84};   // HueSize.points
+
+// ---------- state ----------
+const S={state:'idle',color:'',rgb:[106,123,255],size:60,visible:true,
+  haveCursor:false,cx:innerWidth/2,cy:innerHeight/2,tx:innerWidth/2,ty:innerHeight/2,
+  vx:0,vy:0,settled:true,orbFade:0,raf:0,last:0,lastPaint:0,cvDirty:false};
+
+function applyColor(col){
+  S.color=col; S.rgb=hx(col);
+  const rs=document.documentElement.style;
+  rs.setProperty('--tint',col); rs.setProperty('--tintD',hex(darken(S.rgb,0.08)));
+  // hue field: white-ish core → hue at 34% → clear (ApprenticeOrbView gradient)
+  orb.style.background='radial-gradient(closest-side circle, rgba(255,255,255,.65) 0%, '
+    +rgba(S.rgb,1)+' 34%, '+rgba(S.rgb,0)+' 100%)';
+  S.cvDirty=true;
+}
+function applySize(px){
+  S.size=px;
+  orb.style.width=orb.style.height=px+'px';
+  orb.style.filter='blur('+(px*0.04).toFixed(2)+'px)';
+  lobe.style.width=lobe.style.height=(px*0.32).toFixed(1)+'px';
+}
+applyColor('#6A7BFF'); applySize(60);
+
+// ---------- cursor spring (soft trail, ~80ms lag — spring(response .2, damping .6)) ----------
+const W0=2*Math.PI/0.2, ZETA=0.6;
+function stepSpring(dt){
+  if(S.settled)return;
+  const n=Math.max(1,Math.ceil(dt/0.008)), h=dt/n;
+  for(let i=0;i<n;i++){
+    S.vx+=(W0*W0*(S.tx-S.cx)-2*ZETA*W0*S.vx)*h;
+    S.vy+=(W0*W0*(S.ty-S.cy)-2*ZETA*W0*S.vy)*h;
+    S.cx+=S.vx*h; S.cy+=S.vy*h;
+  }
+  if(Math.abs(S.tx-S.cx)<0.4&&Math.abs(S.ty-S.cy)<0.4&&Math.abs(S.vx)<4&&Math.abs(S.vy)<4){
+    S.cx=S.tx;S.cy=S.ty;S.vx=S.vy=0;S.settled=true;
+  }
+}
+window.__hostCursor=function(x,y,over){
+  if(!S.haveCursor){S.haveCursor=true;S.cx=x;S.cy=y;}   // no flight in from (0,0)
+  S.tx=x;S.ty=y;
+  if(Math.abs(S.tx-S.cx)>0.4||Math.abs(S.ty-S.cy)>0.4)S.settled=false;
+  wake();
+};
+
+// ---------- orb (the field's MOTION is the state) ----------
+function orbWanted(){return S.visible&&S.haveCursor&&S.state!=='pointing'&&!PT.active;}
+function updateOrb(t){
+  const s=S.size, p=Math.sin(t*2);
+  let sc=1, op=0.72, dx=0, dy=0;
+  switch(S.state){
+    case 'listening': sc=0.7+0.3*(0.5-0.5*Math.cos(t*3)); op=0.78; break;      // gather/contract
+    case 'thinking':  sc=1+0.03*p; break;
+    case 'speaking': {const q=Math.sin(t*3*2*Math.PI);                          // quick pulses
+                      sc=1+0.10*q; op=0.72+0.12*Math.max(q,0); break;}
+    default:          sc=1+0.05*p; dx=3*Math.sin(t*2); dy=2*Math.cos(t*2);      // idle breath + drift
+  }
+  // down-right nudge so the field rests on the arrow's body, not dead-on its tip
+  const x=S.cx+s*0.18-s/2+dx, y=S.cy+s*0.22-s/2+dy;
+  orb.style.transform='translate('+x.toFixed(1)+'px,'+y.toFixed(1)+'px) scale('+sc.toFixed(3)+')';
+  orb.style.opacity=(op*S.orbFade).toFixed(3);
+  if(S.state==='thinking'){                                                     // inner bright lobe orbits
+    lobe.style.display='block';
+    const orbit=s*0.21, ox=Math.cos(t*1.6)*orbit, oy=Math.sin(t*1.6)*orbit;
+    lobe.style.transform='translate(calc(-50% + '+ox.toFixed(1)+'px),calc(-50% + '+oy.toFixed(1)+'px))';
+  } else lobe.style.display='none';
+}
+
+// ---------- bubbles (cursor-anchored, clamped fully on-screen) ----------
+const BUB={
+  spoken:  {el:document.getElementById('spoken'),  txt:document.querySelector('#spoken .btxt'),  w:0,h:0,top:0,on:false},
+  thinking:{el:document.getElementById('thinking'),txt:document.querySelector('#thinking .btxt'),w:0,h:0,top:0,on:false},
+  toast:   {el:document.getElementById('toast'),   txt:document.querySelector('#toast .btxt'),   w:0,h:0,top:0,on:false},
+};
+function measure(B){B.w=B.el.offsetWidth;B.h=B.el.offsetHeight;}
+function openBubble(B){
+  if(B.on)return;
+  B.on=true; B.el.classList.remove('out'); void B.el.offsetWidth; B.el.classList.add('in');
+}
+function hideBubble(B){
+  if(!B.on)return;
+  B.on=false; B.el.classList.remove('in'); B.el.classList.add('out');
+  setTimeout(()=>{if(!B.on){B.el.classList.remove('out');B.txt.textContent='';}},280);
+}
+function layoutBubbles(){
+  const W=innerWidth,H=innerHeight, ax=S.cx+14, ay=S.cy+24;
+  const primary=BUB.spoken.on?BUB.spoken:(BUB.thinking.on?BUB.thinking:null);
+  if(primary)placeBubble(primary,ax,ay,W,H);
+  if(BUB.toast.on)placeBubble(BUB.toast,ax,primary?primary.top+primary.h+8:ay,W,H);
+}
+function placeBubble(B,x,y,W,H){
+  const l=clamp(x,8,Math.max(8,W-B.w-8)), t=clamp(y,8,Math.max(8,H-B.h-8));
+  B.top=t; B.el.style.left=l+'px'; B.el.style.top=t+'px';
+}
+
+// spoken bubble typewriter (~22ms/char, native cadence)
+const TW={full:'',shown:0,t:null};
+function twTick(){
+  if(TW.shown>=TW.full.length){clearInterval(TW.t);TW.t=null;return;}
+  TW.shown++;
+  BUB.spoken.txt.textContent=TW.full.slice(0,TW.shown);
+  measure(BUB.spoken); layoutBubbles();
+}
+
+// thinking bubble — spoken always wins the anchor; 10s idle guard (dropped clears)
+const TH={text:'',timer:null};
+function renderThinking(){
+  const B=BUB.thinking, want=!!TH.text&&!BUB.spoken.on;
+  if(want){
+    B.txt.textContent=TH.text; openBubble(B); measure(B); layoutBubbles(); wake();
+  } else hideBubble(B);
+}
+const TO={timer:null};
+
+// ---------- annotation shapes (canvas strokes + DOM badges/labels) ----------
+const SH=[]; let shId=0;
+function whisperEl(text,x,y){
+  const d=document.createElement('div'); d.className='whisper';
+  d.innerHTML='<span class="dot"></span>'; d.appendChild(document.createTextNode(text));
+  d.style.left=x+'px'; d.style.top=y+'px';
+  marks.appendChild(d); void d.offsetWidth; d.classList.add('in'); return d;
+}
+function handEl(text,x,y){
+  const d=document.createElement('div'); d.className='hand'; d.textContent=text;
+  d.style.left=x+'px'; d.style.top=y+'px';
+  marks.appendChild(d); void d.offsetWidth; d.classList.add('in'); return d;
+}
+function buildShapeDOM(s){
+  const L=s.label;
+  if(s.kind==='marker'){
+    const b=document.createElement('div'); b.className='badge'; b.textContent=String(s.number||0);
+    b.style.left=s.from.x+'px'; b.style.top=s.from.y+'px';
+    marks.appendChild(b); void b.offsetWidth; b.classList.add('in'); s.els.push(b);
+    if(L)s.els.push(whisperEl(L,clampLX(s.from.x),Math.max(20,s.from.y-34)));
+  } else if(s.kind==='arrow'){
+    if(L)s.els.push(whisperEl(L,clampLX((s.from.x+s.to.x)/2),Math.max(20,(s.from.y+s.to.y)/2-16)));
+  } else if(s.kind==='circle'&&s.rect){
+    if(L){const r=grow(s.rect,12,9); s.els.push(handEl(L,clampLX(r.x+r.w/2),Math.max(24,r.y-26)));}
+  } else if(s.kind==='box'&&s.rect){
+    if(L){const r=grow(s.rect,10,8); s.els.push(handEl(L,clampLX(r.x+r.w/2),Math.max(24,r.y-26)));}
+  } else if(s.kind==='underline'&&s.rect){
+    if(L)s.els.push(whisperEl(L,clampLX(s.rect.x+s.rect.w/2),Math.max(20,s.rect.y-18)));
+  }
+}
+function beginLeave(s){
+  if(s.leaving)return;
+  s.leaving=true; s.leaveAt=performance.now();
+  s.els.forEach(e=>{e.classList.remove('in');e.classList.add('out');});
+  setTimeout(()=>removeShape(s),420);
+  S.cvDirty=true; wake();
+}
+function removeShape(s){
+  const i=SH.indexOf(s); if(i>=0)SH.splice(i,1);
+  s.els.forEach(e=>e.remove());
+  S.cvDirty=true; wake();
+}
+// entrance spring(response .45, damping .8) evaluated analytically
+function spring045(t){
+  const w0=2*Math.PI/0.45, z=0.8, wd=w0*Math.sqrt(1-z*z);
+  return 1-Math.exp(-z*w0*t)*(Math.cos(wd*t)+(z*w0/wd)*Math.sin(wd*t));
+}
+function shapeAnim(s,now){
+  if(s.leaving){
+    const p=Math.min((now-s.leaveAt)/400,1), e=p*(2-p);
+    return {a:1-e,k:1,anim:p<1};
+  }
+  const t=(now-s.born)/1000;
+  if(t>=0.7)return {a:1,k:1,anim:false};
+  return {a:Math.min(t/0.18,1),k:0.9+0.1*spring045(t),anim:true};
+}
+function shapesAnimating(now){
+  for(const s of SH){
+    if(s.leaving){if(now-s.leaveAt<400)return true;}
+    else if(now-s.born<700)return true;
+  }
+  return false;
+}
+function shapeCenter(s){
+  if(s.kind==='arrow')return {x:(s.from.x+s.to.x)/2,y:(s.from.y+s.to.y)/2};
+  if(s.kind==='marker'||!s.rect)return {x:s.from.x,y:s.from.y};
+  return {x:s.rect.x+s.rect.w/2,y:s.rect.y+s.rect.h/2};
+}
+function drawShape(s,c){
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  if(s.kind==='arrow'){
+    const a=s.from,b=s.to, dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+    const bow=Math.min(len*0.18,60);                        // gentle curve, head at the end
+    const mx=(a.x+b.x)/2+(dy/len)*bow, my=(a.y+b.y)/2-(dx/len)*bow;
+    ctx.strokeStyle=rgba(c,1); ctx.lineWidth=3;
+    ctx.shadowColor=rgba(c,0.7); ctx.shadowBlur=16;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.quadraticCurveTo(mx,my,b.x,b.y);
+    const ang=Math.atan2(b.y-my,b.x-mx), hl=16, spread=Math.PI/7;
+    for(const q of [ang+Math.PI-spread,ang+Math.PI+spread]){
+      ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+hl*Math.cos(q),b.y+hl*Math.sin(q));
+    }
+    ctx.stroke();
+  } else if(s.kind==='circle'&&s.rect){
+    const r=grow(s.rect,12,9);                              // hand-drawn oval hugging the element
+    ctx.strokeStyle=rgba(c,0.95); ctx.lineWidth=1.6;
+    ctx.shadowColor=rgba(c,0.55); ctx.shadowBlur=16;
+    ctx.beginPath(); ctx.ellipse(r.x+r.w/2,r.y+r.h/2,r.w/2,r.h/2,0,0,Math.PI*2); ctx.stroke();
+  } else if(s.kind==='box'&&s.rect){
+    const r=grow(s.rect,10,8);                              // fine drawn line around the real element
+    ctx.strokeStyle=rgba(c,0.95); ctx.lineWidth=1.5;
+    ctx.shadowColor=rgba(c,0.55); ctx.shadowBlur=18;
+    ctx.beginPath(); ctx.roundRect(r.x,r.y,r.w,r.h,10); ctx.stroke();
+  } else if(s.kind==='underline'&&s.rect){
+    const y=s.rect.y+s.rect.h+3;
+    ctx.strokeStyle=rgba(c,1); ctx.lineWidth=3;
+    ctx.shadowColor=rgba(c,0.7); ctx.shadowBlur=16;
+    ctx.beginPath(); ctx.moveTo(s.rect.x,y); ctx.lineTo(s.rect.x+s.rect.w,y); ctx.stroke();
+  }
+}
+function paintShapes(now){
+  const anim=shapesAnimating(now);
+  if(!S.cvDirty&&!anim)return;
+  ctx.clearRect(0,0,innerWidth,innerHeight);
+  for(const s of SH){
+    const st=shapeAnim(s,now);
+    if(st.a<=0||s.kind==='marker')continue;   // markers live in DOM
+    const c=shapeCenter(s);
+    ctx.save();
+    ctx.translate(c.x,c.y); ctx.scale(st.k,st.k); ctx.translate(-c.x,-c.y);
+    ctx.globalAlpha=st.a;
+    drawShape(s,S.rgb);
+    ctx.restore();
+  }
+  S.cvDirty=anim;   // static once every shape settles — canvas holds its last frame
+}
+
+// ---------- pointer bloom (hold 3.2s; the cursor hue hides while it's up) ----------
+const PT={active:false,el:null,timer:null};
+function clearPoint(immediate){
+  clearTimeout(PT.timer); PT.timer=null;
+  const el=PT.el; PT.el=null; PT.active=false;
+  if(el){
+    if(immediate)el.remove();
+    else{el.classList.remove('in'); el.classList.add('out'); setTimeout(()=>el.remove(),420);}
+  }
+  wake();   // hand the hue back to the cursor
+}
+
+// ---------- frame loop (strictly gated) ----------
+function bubblesOn(){return BUB.spoken.on||BUB.thinking.on||BUB.toast.on;}
+function needFrames(now){
+  if(S.orbFade>0.002||orbWanted())return true;      // orb breathes whenever shown
+  if(!S.settled&&bubblesOn())return true;           // bubbles trailing the cursor
+  if(S.cvDirty||shapesAnimating(now))return true;   // shapes entering/leaving
+  return false;
+}
+function wake(){
+  if(!S.raf){S.last=performance.now();S.raf=requestAnimationFrame(loop);}
+}
+function loop(now){
+  S.raf=0;
+  // 30fps cap when only the orb field animates (native TimelineView minimumInterval)
+  const onlyOrb=S.settled&&!S.cvDirty&&!shapesAnimating(now);
+  if(onlyOrb&&now-S.lastPaint<31){
+    if(needFrames(now))S.raf=requestAnimationFrame(loop);
+    return;
+  }
+  const dt=Math.min((now-S.last)/1000,0.1)||0.016;
+  S.last=now; S.lastPaint=now;
+
+  const wasMoving=!S.settled;
+  stepSpring(dt);
+
+  const target=orbWanted()?1:0;
+  S.orbFade+=(target-S.orbFade)*Math.min(1,dt*7);
+  if(Math.abs(target-S.orbFade)<0.01)S.orbFade=target;
+  orb.style.visibility=S.orbFade<=0?'hidden':'visible';
+  if(S.orbFade>0)updateOrb(now/1000);
+
+  if(wasMoving)layoutBubbles();
+  paintShapes(now);
+
+  if(needFrames(now))S.raf=requestAnimationFrame(loop);
+}
+
+// ---------- wire: synthetic frames from the main process ----------
+const AGENT={};
+AGENT['overlay_state']=function(m){
+  if(typeof m.visible==='boolean')S.visible=m.visible;
+  if(m.state)S.state=m.state;
+  if(m.color&&m.color!==S.color)applyColor(m.color);
+  if(m.size&&HUE_PX[m.size]&&HUE_PX[m.size]!==S.size)applySize(HUE_PX[m.size]);
+  wake();
+};
+AGENT['overlay_bubble']=function(m){
+  const full=String(m.display_text||m.text||''); if(!full.trim())return;
+  // real speech wins — clear any thinking bubble immediately
+  TH.text=''; clearTimeout(TH.timer); TH.timer=null; renderThinking();
+  const B=BUB.spoken;
+  // continue the typewriter if the new text extends what's shown; otherwise restart
+  if(!(B.on&&full.startsWith(TW.full.slice(0,TW.shown)))){TW.shown=0;B.txt.textContent='';}
+  TW.full=full;
+  openBubble(B); measure(B); layoutBubbles();
+  if(!TW.t)TW.t=setInterval(twTick,22);
+  wake();
+};
+AGENT['overlay_bubble_clear']=function(){
+  if(TW.t){clearInterval(TW.t);TW.t=null;}
+  TW.full=''; TW.shown=0;
+  hideBubble(BUB.spoken);
+  renderThinking();   // a still-live thinking snippet may reclaim the anchor
+};
+AGENT['overlay_thinking']=function(m){
+  const t=String(m.text||'').trim(); if(!t)return;
+  TH.text=t;
+  clearTimeout(TH.timer);
+  TH.timer=setTimeout(function(){TH.text='';renderThinking();},10000);
+  renderThinking();
+};
+AGENT['overlay_thinking_clear']=function(){
+  TH.text=''; clearTimeout(TH.timer); TH.timer=null; renderThinking();
+};
+AGENT['overlay_toast']=function(m){
+  const t=String(m.text||'').trim(); if(!t)return;
+  const B=BUB.toast;
+  B.txt.textContent=t; openBubble(B); measure(B); layoutBubbles(); wake();
+  clearTimeout(TO.timer);
+  TO.timer=setTimeout(function(){hideBubble(BUB.toast);},3000);
+};
+AGENT['overlay_annotate']=function(m){
+  const arr=Array.isArray(m.shapes)?m.shapes:[]; const now=performance.now();
+  for(const sp of arr){
+    if(!sp||!sp.kind)continue;
+    const s={id:++shId,kind:sp.kind,from:sp.from||{x:0,y:0},to:sp.to||{x:0,y:0},
+      rect:sp.rect||null,number:sp.number||0,label:String(sp.label||'').trim(),
+      born:now,leaving:false,leaveAt:0,els:[],timer:null};
+    SH.push(s); buildShapeDOM(s);
+    s.timer=setTimeout(function(){beginLeave(s);}, s.kind==='marker'?12000:3400);
+  }
+  S.cvDirty=true; wake();
+};
+AGENT['overlay_clear']=function(){
+  SH.slice().forEach(function(s){clearTimeout(s.timer);beginLeave(s);});
+  clearPoint();
+};
+AGENT['overlay_point']=function(m){
+  clearPoint(true);
+  const x=+m.x||0, y=+m.y||0;
+  let w=+m.w||30, h=+m.h||30;
+  // guard against a screen-sized (or degenerate) frame — AnnotationLayer's fallback
+  if(w<1||h<1||w>innerWidth*0.5||h>innerHeight*0.5){w=46;h=26;}
+  w=Math.max(w,18); h=Math.max(h,14);
+  const d=Math.max(w,h), D=d*3.4;
+  const root=document.createElement('div'); root.className='pt';
+  const bl=document.createElement('div'); bl.className='pt-bloom';
+  bl.style.width=bl.style.height=D+'px';
+  bl.style.left=(x-D/2)+'px'; bl.style.top=(y-D/2)+'px';
+  bl.style.background='radial-gradient(closest-side circle, '+rgba(S.rgb,0.5)+' 0%, '+rgba(S.rgb,0)+' 100%)';
+  const bx=document.createElement('div'); bx.className='pt-box';
+  bx.style.left=(x-w/2)+'px'; bx.style.top=(y-h/2)+'px';
+  bx.style.width=w+'px'; bx.style.height=h+'px';
+  bx.style.background=rgba(S.rgb,0.16); bx.style.borderColor=rgba(S.rgb,1);
+  bx.style.boxShadow='0 0 24px '+rgba(S.rgb,0.7);
+  root.appendChild(bl); root.appendChild(bx);
+  const ins=String(m.instruction||'').trim();
+  if(ins){
+    const wl=document.createElement('div'); wl.className='whisper';
+    wl.innerHTML='<span class="dot"></span>'; wl.appendChild(document.createTextNode(ins));
+    wl.style.left=clampLX(x)+'px'; wl.style.top=Math.max(20,y-h/2-18)+'px';
+    root.appendChild(wl);
+  }
+  ptHost.appendChild(root);
+  PT.el=root; PT.active=true;
+  void root.offsetWidth; root.classList.add('in');
+  PT.timer=setTimeout(function(){clearPoint();},3200);
+  wake();   // orb hands off to the bloom (fades) while the target is lit
+};
+
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+window.__onWired=function(){};
+
+// ---------- viewport ----------
+function fit(){
+  const dpr=window.devicePixelRatio||1;
+  cv.width=Math.round(innerWidth*dpr); cv.height=Math.round(innerHeight*dpr);
+  cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  S.cvDirty=true; layoutBubbles(); wake();
+}
+addEventListener('resize',fit);
+fit();
+</script>
+</body>
+</html>

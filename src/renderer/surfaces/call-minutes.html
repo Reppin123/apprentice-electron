@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · meeting minutes</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Meeting minutes — faithful to CallMinutesView (CallAssistViews.swift): the
+     full post-call document in a real resizable window. Minutes (summary +
+     decisions + for-you + action items + follow-ups) then the complete diarized
+     transcript, with the participants editor live-renaming speakers everywhere.
+     Fed a call_summary by main (opened from the recap's "View full transcript →"). */
+  html,body{background:var(--surface);overflow:hidden;}
+  body{display:flex;flex-direction:column;height:100vh;}
+  .titlestrip{height:30px;flex:0 0 auto;-webkit-app-region:drag;}
+  .scroll{flex:1;overflow-y:auto;}
+  .col{max-width:760px;padding:14px 40px 40px;}
+  h1{font-size:26px;font-weight:600;color:var(--ink);}
+  .meta{font-size:13px;font-weight:300;color:var(--dim);margin-top:6px;}
+
+  /* participants editor */
+  .parts{margin-top:24px;}
+  .pehead{font-size:10px;font-weight:600;letter-spacing:2px;color:var(--faint);}
+  .penone{font-size:12px;font-weight:300;color:var(--faint);margin-top:9px;}
+  .perow{display:flex;align-items:center;gap:10px;margin-top:9px;}
+  .pelbl{font-size:11.5px;font-weight:300;color:var(--dim);width:72px;flex:0 0 auto;}
+  .pein{width:240px;font-family:var(--font);font-size:13px;font-weight:300;color:var(--ink);
+    background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:8px;
+    padding:6px 10px;outline:none;}
+  .pein::placeholder{color:var(--faint);}
+
+  .sum{font-size:15px;font-weight:300;color:rgba(243,241,234,.9);line-height:1.6;margin-top:22px;}
+  .shead{font-size:11px;font-weight:600;letter-spacing:2.4px;color:var(--faint);
+    text-transform:uppercase;margin:26px 0 12px;}
+  .items{display:flex;flex-direction:column;gap:10px;}
+  .item{display:flex;align-items:flex-start;gap:12px;}
+  .idot{width:5px;height:5px;border-radius:50%;margin-top:8px;flex:0 0 auto;}
+  .itext{font-size:14.5px;font-weight:300;color:var(--ink);line-height:1.45;}
+  .fuwhen{font-size:12.5px;font-weight:300;color:var(--dim);margin-top:3px;}
+
+  .rule{height:1px;background:var(--hair);margin-top:34px;}
+  .txhead{font-size:11px;font-weight:600;letter-spacing:2.6px;color:var(--faint);
+    margin:22px 0 18px;}
+  .turns{display:flex;flex-direction:column;gap:18px;}
+  .spk{font-size:12.5px;font-weight:600;color:var(--teal);}
+  .spk.me{color:var(--indigo);}
+  .turntext{font-size:14.5px;font-weight:300;color:rgba(243,241,234,.92);line-height:1.55;margin-top:5px;}
+  .notx{font-size:13.5px;font-weight:300;color:var(--faint);}
+  .export{display:inline-block;background:none;border:0;padding:0;cursor:pointer;
+    font-family:var(--font);font-size:12.5px;font-weight:300;color:var(--indigo);margin-top:30px;}
+</style>
+</head>
+<body>
+  <div class="titlestrip"></div>
+  <div class="scroll"><div class="col">
+    <h1>Meeting minutes</h1>
+    <div class="meta" id="meta"></div>
+    <div class="parts" id="parts"></div>
+    <div id="doc"></div>
+  </div></div>
+<script>
+const NAMES_KEY='apprentice.call.speakerNames', META_KEY='apprentice.call.meta';
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let NAMES={};try{NAMES=JSON.parse(localStorage.getItem(NAMES_KEY))||{};}catch(e){}
+function substitute(t){let out=String(t);
+  for(const k of Object.keys(NAMES).filter(k=>NAMES[k]).sort((a,b)=>b.length-a.length))
+    out=out.split(k).join(NAMES[k]);
+  return out;}
+const displayName=l=>NAMES[l]||l;
+
+let SUM=null;
+function metaStr(m){
+  let meta={};try{meta=JSON.parse(localStorage.getItem(META_KEY))||{};}catch(e){}
+  let count=meta.count;
+  if(count==null)count=new Set((m.transcript||[]).map(t=>t.speaker).filter(Boolean)).size;
+  const people=count===1?'1 voice':Math.max(count,1)+' people';
+  return (meta.elapsed?meta.elapsed+' · ':'')+people;
+}
+const remoteSpeakers=()=>
+  [...new Set((SUM&&SUM.transcript||[]).map(t=>t.speaker))].filter(s=>s&&s!=='Me').sort();
+
+function section(title,items,dot,withWhen){
+  if(!items||!items.length)return '';
+  return '<div class="shead">'+title+'</div><div class="items">'+
+    items.map(it=>{
+      const text=withWhen?it.text||'':it;
+      const when=withWhen&&it.when_text?'<div class="fuwhen">'+esc(it.when_text)+'</div>':'';
+      return '<div class="item"><span class="idot" style="background:'+dot+'"></span>'+
+        '<div><div class="itext">'+esc(substitute(text))+'</div>'+when+'</div></div>';
+    }).join('')+'</div>';
+}
+function renderParts(){
+  const p=document.getElementById('parts');
+  const spk=remoteSpeakers();
+  let h='<div class="pehead">NAME THE SPEAKERS</div>';
+  if(!spk.length)h+='<div class="penone">No other speakers detected yet.</div>';
+  else h+=spk.map(l=>'<div class="perow"><span class="pelbl">'+esc(l)+'</span>'+
+    '<input class="pein" placeholder="name" data-l="'+esc(l)+'" value="'+esc(NAMES[l]||'')+'"/></div>').join('');
+  p.innerHTML=h;
+  p.querySelectorAll('.pein').forEach(i=>i.oninput=()=>{
+    const v=i.value.trim();
+    if(v)NAMES[i.dataset.l]=v;else delete NAMES[i.dataset.l];
+    localStorage.setItem(NAMES_KEY,JSON.stringify(NAMES));
+    renderDoc();   // re-substitute everywhere; editor untouched so focus holds
+  });
+}
+function renderDoc(){
+  if(!SUM)return;
+  let h='';
+  if(SUM.summary)h+='<div class="sum">'+esc(substitute(SUM.summary))+'</div>';
+  h+=section('Decisions',SUM.decisions,'var(--teal)');
+  h+=section('For you',SUM.instructions,'var(--lilac)');
+  h+=section('Action items',SUM.action_items,'var(--amber)');
+  h+=section('Follow-ups',SUM.follow_ups,'var(--amber)',true);
+  h+='<div class="rule"></div><div class="txhead">TRANSCRIPT</div>';
+  const turns=SUM.transcript||[];
+  if(!turns.length)h+='<div class="notx">No transcript was captured.</div>';
+  else h+='<div class="turns">'+turns.map(t=>{
+    const me=t.speaker==='Me';
+    return '<div><div class="spk'+(me?' me':'')+'">'+esc(displayName(t.speaker||''))+'</div>'+
+      '<div class="turntext">'+esc(substitute(t.text||''))+'</div></div>';
+  }).join('')+'</div>';
+  if(SUM.transcript_path)h+='<button class="export" id="export">Export as markdown →</button>';
+  document.getElementById('doc').innerHTML=h;
+  const ex=document.getElementById('export');
+  if(ex)ex.onclick=()=>sendMsg({type:'ui_action',action:'call_export_markdown',value:SUM.transcript_path});
+}
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+const AGENT={};
+
+AGENT['call_summary']=function(m){
+  SUM=m;
+  document.getElementById('meta').textContent=metaStr(m);
+  renderParts();renderDoc();
+};
+
+window.__onWired=function(){WIRED=true;};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+// live rename from the in-call panel (same-origin localStorage) propagates here
+window.addEventListener('storage',e=>{
+  if(e.key!==NAMES_KEY)return;
+  try{NAMES=JSON.parse(e.newValue)||{};}catch(err){NAMES={};}
+  renderParts();renderDoc();
+});
+</script>
+</body>
+</html>

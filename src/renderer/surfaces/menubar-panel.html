@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice Menu Bar Panel</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Port of CompanionPanelView.swift — the calm home (ready) or a single
+     re-grant nudge (attention body). Bare lowercase words as actions, no
+     button chrome. Driven by synthetic {type:"shell_status"} host frames. */
+  html,body{background:transparent;overflow:hidden;height:100%;}
+  .panel{position:relative;width:320px;height:100%;display:flex;flex-direction:column;
+    background:var(--ground);border:1px solid var(--hair);border-radius:var(--r-panel);overflow:hidden;}
+  /* aurora pooling at the top (indigo 230x175 blur64 .22 ; teal 190x160 blur64 .13) */
+  .bloom{position:absolute;inset:0;pointer-events:none;}
+  .bloom i{position:absolute;border-radius:50%;filter:blur(64px);mix-blend-mode:screen;}
+  .bloom .a{width:230px;height:175px;left:-25px;top:-13px;background:var(--indigo);opacity:.22;}
+  .bloom .b{width:190px;height:160px;left:160px;top:-5px;background:var(--teal);opacity:.13;}
+  .panel>*{position:relative;}
+
+  .head{display:flex;align-items:center;gap:11px;padding:14px 16px;flex:0 0 auto;}
+  .markwrap{position:relative;width:26px;height:26px;flex:0 0 auto;}
+  .statelight{position:absolute;left:-7px;top:-7px;width:40px;height:40px;border-radius:50%;
+    background:var(--state,var(--amber));filter:blur(10px);mix-blend-mode:screen;
+    animation:breathe 4.4s ease-in-out infinite alternate;}
+  @keyframes breathe{from{opacity:.32}to{opacity:.55}}
+  .mark{position:relative;width:26px;height:26px;border-radius:7px;object-fit:cover;}
+  .brand{font-size:14px;font-weight:500;color:var(--ink);}
+  .status{margin-left:auto;font-size:12px;font-weight:400;color:var(--state,var(--amber));}
+  .x{width:18px;height:18px;display:flex;align-items:center;justify-content:center;color:var(--dim);cursor:pointer;flex:0 0 auto;}
+  .x:hover{color:var(--ink);}
+
+  .hair{height:1px;background:var(--hair);margin:0 16px;flex:0 0 auto;}
+  .bd{display:flex;flex-direction:column;gap:14px;padding:16px 16px 0;}
+
+  /* bare lowercase word action — glows on hover */
+  .wact{display:flex;align-items:center;gap:8px;cursor:pointer;}
+  .wact .w{font-size:13px;font-weight:400;color:var(--ink);transition:color .15s,text-shadow .15s;}
+  .wact:hover .w{color:#fff;text-shadow:0 0 8px rgba(255,255,255,.25);}
+  .wact .h{margin-left:auto;font-size:11px;font-weight:400;color:var(--dim);}
+
+  .talk{display:flex;align-items:center;gap:9px;}
+  .talk .t{font-size:12.5px;font-weight:300;color:var(--dim);}
+  .kc{font-size:11px;color:var(--ink);padding:3px 8px;border-radius:var(--r-chip);
+    background:rgba(255,255,255,.06);border:1px solid var(--hair);}
+
+  .note{font-size:12px;font-weight:300;color:var(--dim);line-height:1.45;}
+  .perms{display:flex;flex-direction:column;gap:2px;}
+  .prow{display:flex;align-items:center;gap:10px;padding:7px 0;}
+  .prow .l{font-size:13px;font-weight:300;color:var(--ink);}
+  .prow.ok .l{color:var(--dim);}
+  .granted{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:300;color:var(--teal);}
+  .granted i{width:6px;height:6px;border-radius:50%;background:var(--teal);}
+  .grant{margin-left:auto;font-size:12.5px;color:var(--indigo);text-shadow:0 0 8px rgba(106,123,255,.4);cursor:pointer;}
+
+  .foot{margin-top:auto;padding-top:12px;flex:0 0 auto;}
+  .frow{display:flex;align-items:center;padding:12px 16px;}
+  .fword{font-size:12px;font-weight:300;color:var(--faint);cursor:pointer;transition:color .15s,text-shadow .15s;}
+  .fword:hover{color:var(--dim);}
+  .fword.danger:hover{color:var(--red);text-shadow:0 0 8px rgba(255,107,107,.4);}
+  .fword.replay{margin-left:auto;}
+  .fword.replay.hide{display:none;}
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+  <div class="bloom"><i class="a"></i><i class="b"></i></div>
+  <div class="head">
+    <span class="markwrap"><span class="statelight"></span><img class="mark" src="apprentice-mark.png" alt=""/></span>
+    <span class="brand">Apprentice</span>
+    <span class="status" id="status">starting…</span>
+    <span class="x" onclick="ui('dismiss_panel')"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4.6 4.6 11.4 11.4M11.4 4.6 4.6 11.4"/></svg></span>
+  </div>
+  <div class="hair"></div>
+  <div class="bd" id="bd"></div>
+  <div class="foot">
+    <div class="hair"></div>
+    <div class="frow">
+      <span class="fword danger" onclick="sendMsg({type:'host_quit'})">quit</span>
+      <span class="fword replay" id="replay" onclick="ui('replay_onboarding')">replay onboarding</span>
+    </div>
+  </div>
+</div>
+<script>
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+function ui(action,value){sendMsg(value?{type:'ui_action',action:action,value:value}:{type:'ui_action',action:action});}
+function open_(surface){sendMsg({type:'host_open',surface:surface});}
+
+// status word + hue per backend state (statusWord/statusHue in the Swift)
+const WORD={setup:'setup',paused:'paused',starting:'starting…',reconnecting:'reconnecting…',
+  stopped:'stopped',ready:'ready',active:'active',listening:'listening',working:'working',
+  thinking:'thinking',speaking:'speaking'};
+const HUE={setup:'amber',paused:'amber',starting:'amber',reconnecting:'amber',stopped:'amber',
+  ready:'teal',active:'teal',listening:'indigo',working:'indigo',thinking:'lilac',speaking:'teal'};
+
+const S={backend:'starting',perms:{mic:false,accessibility:false,screen:false,screenContent:false},
+  allGranted:true,agentStopped:false};
+
+function wact(label,hint,click){
+  return `<div class="wact" onclick="${click}"><span class="w">${label}</span><span class="h">${hint}</span></div>`;}
+function prow(label,granted,value){
+  return `<div class="prow${granted?' ok':''}"><span class="l">${label}</span>`+
+    (granted?`<span class="granted"><i></i>granted</span>`
+            :`<span class="grant" onclick="ui('grant_permission','${value}')">grant</span>`)+`</div>`;}
+
+function render(){
+  document.getElementById('status').textContent=WORD[S.backend]||S.backend;
+  document.getElementById('panel').style.setProperty('--state','var(--'+(HUE[S.backend]||'amber')+')');
+  const bd=document.getElementById('bd');
+  if(S.allGranted){
+    let h='';
+    if(S.agentStopped)h+=wact('restart apprentice','the agent stopped',"ui('relaunch_agent')");
+    h+=`<div class="talk"><span class="t">hold</span><span class="kc">⌃</span><span class="kc">⌥</span><span class="t">to talk</span></div>`;
+    h+=wact('guide','how it works',"open_('guide')");
+    h+=wact("what i've learned",'⌘⌥J',"open_('inspector')");
+    bd.innerHTML=h;
+  }else{
+    let h=`<div class="note">${S.backend==='setup'
+      ?'A couple of switches to finish setup.'
+      :'Some access was turned off — flip it back on to keep going.'}</div>`;
+    h+='<div class="perms">';
+    h+=prow('Microphone',S.perms.mic,'mic');
+    h+=prow('Accessibility',S.perms.accessibility,'accessibility');
+    h+=prow('Screen Recording',S.perms.screen,'screen');
+    if(S.perms.screen)h+=prow('Screen Content',S.perms.screenContent,'screenContent');
+    h+='</div>';
+    bd.innerHTML=h;
+  }
+  document.getElementById('replay').classList.toggle('hide',S.backend==='setup');
+}
+
+const AGENT={};
+AGENT['shell_status']=function(m){
+  if(m.backend)S.backend=m.backend;
+  if(m.permissions)S.perms=m.permissions;
+  S.allGranted=!!m.allGranted;
+  S.agentStopped=!!m.agentStopped;
+  render();};
+
+window.__onWired=function(){};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+render();
+</script>
+</body>
+</html>

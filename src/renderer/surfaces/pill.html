@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice State Pill</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* The state pill = a bottom-center opaque capsule HUD, ~44px tall, content-width,
+     26px above the screen bottom. Fully faithful to StatePillManager.swift. The pill
+     uses its OWN Pill.* palette (not Hue.*). CRITICAL: the rAF loop runs ONLY in
+     listening/thinking/speaking (eyes blink/scan + waveform); everything else is
+     static / CSS-transition driven — never a busy loop at rest. */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  :root{
+    --p-ground:#0A0B10; --p-warm:#F3F1EA; --p-dim:#A8A8A8; --p-faint:#6B6B6B;
+    --p-indigo:#6A7BFF; --p-amber:#F5D18A; --p-ember:#DD9468; --p-rose:#E07A72;
+    --accent:var(--p-indigo);
+  }
+  .pill{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+    height:44px;border-radius:22px;background:var(--p-ground);
+    border:1px solid var(--p-border,rgba(255,255,255,.085));
+    display:flex;align-items:center;gap:10px;padding:0 17px 0 15px;position:fixed;
+    transform-origin:bottom center;transition:transform .42s cubic-bezier(.2,.7,.3,1),opacity .28s ease-out,border-color .42s;}
+  .pill.pop{transform:translateX(-50%) scale(1.05);}
+  /* rest launcher */
+  .mark{width:18px;height:18px;border-radius:5px;object-fit:cover;border:1px solid rgba(255,255,255,.06);flex:0 0 auto;}
+  .ask{font-size:13px;font-weight:300;color:var(--p-dim);white-space:nowrap;}
+  .keycap{font-size:10.5px;color:var(--p-faint);padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.12);
+    white-space:nowrap;opacity:0;transition:opacity .2s ease-out;}
+  .pill.hover .keycap{opacity:1;}
+  /* eyes */
+  .eyes{display:flex;align-items:center;gap:5px;flex:0 0 auto;}
+  .eye{width:7px;background:var(--accent);border-radius:3.5px;transition:height .25s ease-out;}
+  .eye.glow{box-shadow:0 0 5px color-mix(in srgb,var(--accent) 60%,transparent);}
+  .eye.arc{border-radius:5px 5px 1px 1px;}
+  .eye.dim{opacity:.65;}
+  /* waveform */
+  .wave{display:flex;align-items:center;gap:2.5px;height:18px;flex:0 0 auto;}
+  .bar{width:2.5px;height:3px;border-radius:2px;background:var(--accent);
+    box-shadow:0 0 3px color-mix(in srgb,var(--accent) 70%,transparent);}
+  /* text */
+  .lbl{font-size:13px;font-weight:300;white-space:nowrap;}
+  .lbl.lit{color:var(--p-warm);} .lbl.dim{color:var(--p-dim);}
+  .time{font-size:10.5px;font-family:var(--mono);color:var(--p-faint);white-space:nowrap;}
+  /* progress filament */
+  .filament{position:absolute;bottom:5px;left:16px;right:16px;height:2px;border-radius:1px;background:rgba(255,255,255,.08);}
+  .fill{height:2px;border-radius:1px;background:var(--accent);width:0;transition:width .5s ease-out;
+    box-shadow:0 0 4px color-mix(in srgb,var(--accent) 60%,transparent);}
+</style>
+</head>
+<body>
+  <div class="pill" id="pill"></div>
+<script>
+const A={indigo:'#6A7BFF',amber:'#F5D18A',ember:'#DD9468',rose:'#E07A72',warm:'#F3F1EA'};
+function accentFor(s){return s==='speaking'||s==='milestone'?A.amber:s==='late'?A.ember:s==='stopped'?A.rose:s==='done'?A.warm:A.indigo;}
+const EYE_H={listening:13,working:4.5,milestone:12,late:7,stopped:2.5,speaking:6.5,done:6.5};
+const LIT=['listening','thinking','working','milestone','late','done'];
+const mark='apprentice-mark.png';
+
+// ---------- state ----------
+const P={ voice:'resting', taskState:'none',           // 'none'|working|milestone|late|stopped|done
+  session:null, progress:0, milestoneLabel:'', doneLabel:'', timeText:'',
+  focusedId:null, hover:false, display:'resting', _holdT:null, _tick:null, _raf:0 };
+
+function displayState(){ return P.voice!=='resting'?P.voice : (P.taskState!=='none'?P.taskState:'resting'); }
+function labelFor(s){ return {resting:'',listening:'listening',transcribing:'transcribing…',thinking:'thinking',
+  speaking:'speaking',working:P.session?P.session.friendly:'working',milestone:P.milestoneLabel||'✦ halfway',
+  late:'running long',stopped:'stopped — over budget, not you',done:P.doneLabel||'done ✓'}[s]||''; }
+
+// ---------- render (coalesced: only rebuild when the display state changes) ----------
+let _rendered=null;
+function refresh(){
+  const s=displayState();
+  const structural = s!==_rendered;
+  if(structural){ _rendered=s; buildPill(s); startStopRaf(s); }
+  else updateDynamic(s);   // time text / label / progress within the same state
+}
+function buildPill(s){
+  const pill=document.getElementById('pill');
+  const acc=accentFor(s); pill.style.setProperty('--accent',acc);
+  pill.style.setProperty('--p-border', s==='milestone'?'rgba(245,209,138,.25)':'rgba(255,255,255,.085)');
+  pill.classList.toggle('pop', s==='milestone'||s==='done');
+  if(s==='resting'){
+    pill.innerHTML=`<img class="mark" src="${mark}" alt=""/><span class="ask">ask anything</span><span class="keycap">⌘⌥S</span>`;
+    pill.style.opacity=P.hover?1:0.55;
+    return;
+  }
+  pill.style.opacity=1;
+  const eh=EYE_H[s]??11, glow=!['stopped','transcribing'].includes(s), arc=s==='speaking'||s==='done', dim=s==='transcribing';
+  const eyeCls=`eye${glow?' glow':''}${arc?' arc':''}${dim?' dim':''}`;
+  let h=`<span class="eyes"><span class="${eyeCls}" style="height:${eh}px"></span><span class="${eyeCls}" style="height:${eh}px"></span></span>`;
+  if(s==='listening'||s==='speaking') h+=`<span class="wave">${'<span class="bar"></span>'.repeat(5)}</span>`;
+  const lbl=labelFor(s);
+  if(lbl) h+=`<span class="lbl ${LIT.includes(s)?'lit':'dim'}">${lbl}</span>`;
+  if(['working','milestone','late'].includes(s)&&P.timeText) h+=`<span class="time">${P.timeText}</span>`;
+  if(['working','milestone','late','stopped'].includes(s)) h+=`<span class="filament"><span class="fill" id="fill"></span></span>`;
+  pill.innerHTML=h;
+  const fill=document.getElementById('fill'); if(fill) requestAnimationFrame(()=>fill.style.width=(Math.min(1,P.progress)*100)+'%');
+}
+function updateDynamic(s){
+  const lbl=document.querySelector('#pill .lbl'); if(lbl){const t=labelFor(s); if(lbl.textContent!==t)lbl.textContent=t;}
+  let time=document.querySelector('#pill .time');
+  if(['working','milestone','late'].includes(s)){
+    if(P.timeText&&!time){/* re-add */ buildPill(s); return;} if(time&&time.textContent!==P.timeText)time.textContent=P.timeText;
+  }
+  const fill=document.getElementById('fill'); if(fill)fill.style.width=(Math.min(1,P.progress)*100)+'%';
+}
+
+// ---------- animation loop — ONLY while listening/thinking/speaking ----------
+function startStopRaf(s){
+  const need=['listening','thinking','speaking'].includes(s);
+  if(need&&!P._raf){ const t0=performance.now(); const loop=(now)=>{ if(!['listening','thinking','speaking'].includes(displayState())){P._raf=0;return;} animate(displayState(),(now-t0)/1000); P._raf=requestAnimationFrame(loop); }; P._raf=requestAnimationFrame(loop); }
+  else if(!need&&P._raf){ cancelAnimationFrame(P._raf); P._raf=0; }
+}
+function animate(s,t){
+  const eyes=document.querySelectorAll('#pill .eye');
+  if(s==='listening'){ const blink=(t%4.2)>4.0?0.15:1; eyes.forEach(e=>e.style.transform=`scaleY(${blink})`); }
+  else if(s==='thinking'){ const x=Math.sin(t*2*Math.PI/1.6)*2.5; eyes.forEach(e=>e.style.transform=`translateX(${x}px)`); }
+  // waveform (listening reactive=level, speaking steady 0.75)
+  const bars=document.querySelectorAll('#pill .bar');
+  if(bars.length){ const amp=s==='listening'?Math.min(0.22+(P.level||0),1):0.75;
+    bars.forEach((b,i)=>{ const wob=Math.sin(t*9+i*0.9)*0.5+0.5; b.style.height=(3+amp*wob*15).toFixed(1)+'px'; }); }
+}
+
+// ---------- self-driven work progress (250ms tick; stops when no session) ----------
+function startTick(){ stopTick(); P._tick=setInterval(tick,250); }
+function stopTick(){ if(P._tick){clearInterval(P._tick);P._tick=null;} }
+function fmt(s){s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+function tick(){
+  if(!P.session)return; const now=Date.now()/1000, el=now-P.session.startedAt, exp=P.session.expectedS;
+  P.progress=Math.min(el/exp,1);
+  P.timeText = P.progress<1 ? `~${fmt(exp-el)} left` : `${fmt(el)} / ~${fmt(exp)}`;
+  // milestones (once each, while progress<1) → brief milestone swell
+  if(P.progress<1){ for(const [pct,txt] of [[.25,'✦ a quarter in'],[.5,'✦ halfway'],[.75,'✦ almost']]){
+    if(P.progress>=pct && !P.session['m'+pct]){ P.session['m'+pct]=1; P.milestoneLabel=txt; P.taskState='milestone';
+      clearTimeout(P._msT); P._msT=setTimeout(()=>{ if(P.taskState==='milestone')P.taskState=(P.progress>=1?'late':'working'); refresh(); },3000); } } }
+  P.taskState = P.taskState==='milestone'?'milestone' : (el>=exp?'late':'working');
+  refresh();
+}
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+function setVoice(v){ if(P.voice!==v){P.voice=v; refresh();} }
+function endTask(state,holdMs){ stopTick(); P.taskState=state; refresh();
+  clearTimeout(P._holdT); P._holdT=setTimeout(()=>{ P.taskState='none'; P.session=null; P.progress=0; P.timeText=''; refresh(); },holdMs); }
+
+const AGENT={};
+AGENT['set_state']=function(m){ const st=m.state||'idle';
+  if(['listening','transcribing','thinking','speaking'].includes(st))setVoice(st); else setVoice('resting'); };
+AGENT['say']=function(m){ setVoice('speaking'); };
+AGENT['agent_list']=function(m){ P.focusedId=m.focused_task_id||P.focusedId; };
+AGENT['tool_started']=function(m){ const exp=m.expected_s; if(exp==null||exp<30)return;
+  if(m.task_id&&P.focusedId&&m.task_id!==P.focusedId)return;
+  P.session={id:m.tool_id,friendly:(m.friendly||m.name||'working').toLowerCase(),expectedS:exp,startedAt:Date.now()/1000};
+  P.progress=0; P.milestoneLabel=''; P.taskState='working'; clearTimeout(P._holdT); startTick(); refresh(); };
+AGENT['capture_progress']=function(m){ if(P.session&&m.friendly){P.session.friendly=m.friendly.toLowerCase(); refresh();} };
+AGENT['tool_finished']=function(m){ if(!P.session||m.tool_id!==P.session.id)return;
+  P.progress=1;
+  if(m.is_error){ if((m.output_preview||'').startsWith('⏱')){ endTask('stopped',6000); } else { stopTick(); P.session=null; P.taskState='none'; refresh(); } }
+  else { P.doneLabel = m.elapsed_s ? `done — ${fmt(m.elapsed_s)} ✓` : 'done ✓'; endTask('done',4000); } };
+AGENT['agent_interrupted']=function(m){ stopTick(); P.session=null; P.taskState='none'; setVoice('resting'); refresh(); };
+
+window.__onWired=function(){WIRED=true;sendMsg({type:'agent_list'});};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+// rest hover (opens summon on click)
+const pill=document.getElementById('pill');
+pill.addEventListener('mouseenter',()=>{if(displayState()==='resting'){P.hover=true;pill.classList.add('hover');pill.style.opacity=1;}});
+pill.addEventListener('mouseleave',()=>{if(displayState()==='resting'){P.hover=false;pill.classList.remove('hover');pill.style.opacity=0.55;}});
+// Native-driven hover (macOS background overlay): host feeds the cursor; hit-test here.
+window.__hostCursor=function(x,y,over){
+  if(displayState()!=='resting')return;
+  const el=over?document.elementFromPoint(x,y):null;
+  const h=!!(el&&el.closest&&el.closest('#pill'));
+  if(P.hover!==h){P.hover=h;pill.classList.toggle('hover',h);pill.style.opacity=h?1:0.55;}
+};
+pill.addEventListener('click',()=>{if(displayState()==='resting'&&WIRED)sendMsg({type:'summon_open'});});
+
+// boot — demo state via __initTab (webhost 6th arg) for screencapture; default resting
+if(window.__initTab){ const s=window.__initTab;
+  if(['working','milestone','late'].includes(s)){P.session={id:'d',friendly:'reconciling the q3 sheet',expectedS:120,startedAt:Date.now()/1000-42};P.taskState=s;P.progress=0.35;P.timeText='~1:18 left';}
+  else if(s==='done'){P.doneLabel='done — 1:24 ✓';P.taskState='done';}
+  else if(s==='stopped'){P.taskState='stopped';P.progress=1;}
+  else P.voice=s; }
+function reportHotRect(){if(!(window.chrome&&window.chrome.webview)&&!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent))return;var r=document.getElementById("pill").getBoundingClientRect();var PAD=8;sendMsg({type:"__hotrect",x:Math.round(r.left-PAD),y:Math.round(r.top-PAD),w:Math.round(r.width+2*PAD),h:Math.round(r.height+2*PAD)});}
+setInterval(reportHotRect,150);
+refresh();
+if(P.session)startTick();
+</script>
+</body>
+</html>

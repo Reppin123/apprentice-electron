@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · past calls</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Past-calls browser — faithful to CallHistoryView (CallAssistViews.swift):
+     master list → read-only detail with a Back button, per-row + in-detail
+     Delete behind a confirm. One window, full navigation — no dead ends.
+     Records come from main as call_history_state {records:[{path,title,date,
+     summary,has_transcript}]}; the detail renders from those fields. */
+  html,body{background:var(--surface);overflow:hidden;}
+  body{display:flex;flex-direction:column;height:100vh;}
+  .titlestrip{height:30px;flex:0 0 auto;-webkit-app-region:drag;}
+  .view{display:flex;flex-direction:column;flex:1;min-height:0;}
+  .scroll{flex:1;overflow-y:auto;}
+  .col{max-width:620px;padding:10px 36px 36px;}
+  h1{font-size:24px;font-weight:600;color:var(--ink);margin-bottom:18px;}
+  .empty{font-size:13.5px;font-weight:300;color:var(--faint);}
+
+  .row{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--hair2);}
+  .rowmain{flex:1;min-width:0;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:var(--font);}
+  .rt{font-size:15px;font-weight:300;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rm{font-size:12px;font-weight:300;color:var(--faint);margin-top:4px;}
+  .rowdel{background:none;border:0;padding:2px;color:var(--faint);cursor:pointer;flex:0 0 auto;}
+  .rowdel:hover{color:var(--dim);}
+
+  /* detail */
+  .dbar{display:flex;align-items:center;gap:14px;padding:12px 22px;flex:0 0 auto;
+    border-bottom:1px solid var(--hair2);}
+  .back{background:none;border:0;padding:0;cursor:pointer;font-family:var(--font);
+    font-size:12.5px;font-weight:500;color:var(--indigo);}
+  .ddel{background:none;border:0;padding:0;cursor:pointer;font-family:var(--font);
+    font-size:12.5px;font-weight:300;color:var(--dim);margin-left:auto;}
+  .dcol{max-width:760px;padding:26px 40px 40px;}
+  .dcol h2{font-size:26px;font-weight:600;color:var(--ink);}
+  .dmeta{font-size:13px;font-weight:300;color:var(--dim);margin-top:6px;}
+  .dsum{font-size:15px;font-weight:300;color:rgba(243,241,234,.9);line-height:1.6;margin-top:22px;}
+  .rule{height:1px;background:var(--hair);margin-top:34px;}
+  .txhead{font-size:11px;font-weight:600;letter-spacing:2.6px;color:var(--faint);margin:22px 0 18px;}
+  .notx{font-size:13.5px;font-weight:300;color:var(--faint);}
+  .export{background:none;border:0;padding:0;cursor:pointer;font-family:var(--font);
+    font-size:12.5px;font-weight:300;color:var(--indigo);}
+
+  /* delete confirm */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;
+    align-items:center;justify-content:center;z-index:5;}
+  .mcard{width:280px;background:var(--surface);border:1px solid var(--hair);border-radius:14px;
+    padding:20px;box-shadow:0 18px 30px rgba(0,0,0,.6);}
+  .mt{font-size:14px;font-weight:600;color:var(--ink);}
+  .mm{font-size:12.5px;font-weight:300;color:var(--dim);line-height:1.5;margin-top:8px;}
+  .mb{display:flex;gap:10px;margin-top:18px;}
+  .mdel{flex:1;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--red);
+    background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.35);border-radius:10px;
+    padding:8px 0;cursor:pointer;}
+  .mcancel{flex:1;font-family:var(--font);font-size:12.5px;font-weight:300;color:var(--dim);
+    background:none;border:1px solid var(--hair);border-radius:10px;padding:8px 0;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="titlestrip"></div>
+  <div class="view" id="listview">
+    <div class="scroll"><div class="col">
+      <h1>Past calls</h1>
+      <div id="rows"></div>
+    </div></div>
+  </div>
+  <div class="view" id="detailview" hidden>
+    <div class="dbar">
+      <button class="back" id="back">← Past calls</button>
+      <button class="ddel" id="ddel">Delete</button>
+    </div>
+    <div class="scroll"><div class="dcol" id="det"></div></div>
+  </div>
+  <div class="modal" id="modal" hidden>
+    <div class="mcard">
+      <div class="mt">Delete this call?</div>
+      <div class="mm">Its transcript and minutes are permanently removed.</div>
+      <div class="mb">
+        <button class="mdel" id="mdel">Delete</button>
+        <button class="mcancel" id="mcancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+<script>
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const TRASH='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4h10.4M6.1 4.4V3.1c0-.4.3-.7.7-.7h2.4c.4 0 .7.3.7.7v1.3M4.1 4.4l.7 8.4c0 .4.4.7.8.7h4.8c.4 0 .8-.3.8-.7l.7-8.4M6.6 7v3.9M9.4 7v3.9"/></svg>';
+
+let RECS=[], selected=null, pendingDelete=null;
+
+function renderList(){
+  const el=document.getElementById('rows');
+  if(!RECS.length){el.innerHTML='<div class="empty">No calls yet. They\'ll show up here after you stop a call.</div>';return;}
+  el.innerHTML=RECS.map((r,i)=>'<div class="row">'+
+    '<button class="rowmain" data-i="'+i+'"><div class="rt">'+esc(r.title||r.summary||'Call')+'</div>'+
+    '<div class="rm">'+esc(r.date||'')+'</div></button>'+
+    '<button class="rowdel" data-i="'+i+'" title="Delete">'+TRASH+'</button></div>').join('');
+  el.querySelectorAll('.rowmain').forEach(b=>b.onclick=()=>openDetail(RECS[+b.dataset.i]));
+  el.querySelectorAll('.rowdel').forEach(b=>b.onclick=e=>{e.stopPropagation();askDelete(RECS[+b.dataset.i]);});
+}
+function openDetail(rec){
+  selected=rec;
+  let h='<h2>Meeting minutes</h2><div class="dmeta">'+esc(rec.date||'')+'</div>';
+  if(rec.summary)h+='<div class="dsum">'+esc(rec.summary)+'</div>';
+  h+='<div class="rule"></div><div class="txhead">TRANSCRIPT</div>';
+  h+=rec.has_transcript
+    ?'<button class="export" id="export">Export as markdown →</button>'
+    :'<div class="notx">No transcript was captured.</div>';
+  document.getElementById('det').innerHTML=h;
+  const ex=document.getElementById('export');
+  if(ex)ex.onclick=()=>sendMsg({type:'ui_action',action:'call_export_markdown',value:rec.path});
+  document.getElementById('listview').hidden=true;
+  document.getElementById('detailview').hidden=false;
+}
+function backToList(){
+  selected=null;
+  document.getElementById('detailview').hidden=true;
+  document.getElementById('listview').hidden=false;
+}
+function askDelete(rec){pendingDelete=rec;document.getElementById('modal').hidden=false;}
+function closeModal(){pendingDelete=null;document.getElementById('modal').hidden=true;}
+
+document.getElementById('back').onclick=backToList;
+document.getElementById('ddel').onclick=()=>{if(selected)askDelete(selected);};
+document.getElementById('mcancel').onclick=closeModal;
+document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+document.getElementById('mdel').onclick=()=>{
+  const rec=pendingDelete;
+  if(!rec){closeModal();return;}
+  sendMsg({type:'ui_action',action:'call_delete_record',value:rec.path});
+  RECS=RECS.filter(r=>r.path!==rec.path);
+  if(selected&&selected.path===rec.path)backToList();
+  closeModal();
+  renderList();
+};
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+const AGENT={};
+
+AGENT['call_history_state']=function(m){
+  RECS=m.records||[];
+  if(selected&&!RECS.some(r=>r.path===selected.path))backToList();
+  renderList();
+};
+
+window.__onWired=function(){WIRED=true;sendMsg({type:'ui_action',action:'call_history_request'});};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+
+renderList();
+</script>
+</body>
+</html>

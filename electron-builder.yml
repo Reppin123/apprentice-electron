@@ -1,0 +1,35 @@
+appId: com.apprentice.app
+productName: Apprentice
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+extraResources:
+  # the shared surfaces (same HTML on mac + windows)
+  - from: src/renderer/surfaces
+    to: surfaces
+  # per-OS native helpers
+  - from: resources/darwin
+    to: darwin
+    filter: ['apprentice-resolve']
+  # the frozen python agent (Nuitka dist) — place a build at resources/agent.dist
+  # before packaging; dev runs attach to the source agent instead.
+  - from: resources/agent.dist
+    to: agent.dist
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  extendInfo:
+    NSMicrophoneUsageDescription: Apprentice listens only while you hold the push-to-talk keys.
+    NSSpeechRecognitionUsageDescription: Transcription of your push-to-talk audio happens on demand.
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+publish: null

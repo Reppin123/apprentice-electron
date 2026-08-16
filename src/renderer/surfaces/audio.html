@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Apprentice Audio</title>
+<style>html,body{margin:0;background:transparent;overflow:hidden;width:0;height:0;}</style>
+</head>
+<body>
+<script>
+'use strict';
+// Hidden audio surface: Web Audio playback for the TTS backends + mic
+// capture for push-to-talk / dictation / calls. Wire idiom: synthetic frames
+// arrive via window.apprentice.onMessage (main targets this window on the
+// same 'bridge:message' channel every surface speaks); outbound goes up as
+// ui_action host actions via window.apprentice.send.
+//
+//   in :  {type:'audio_play', id, chunk_b64, format:'mp3'|'pcm16'|'pcm_f32',
+//          rate, speed}   — one chunk of an utterance
+//         {type:'audio_end', id}      — no more chunks for id
+//         {type:'audio_stop'}         — flush everything, no completion report
+//         {type:'audio_mic_start', capture_sys}
+//         {type:'audio_mic_stop'}
+//   out:  {type:'ui_action', action:'audio_done', value:id}
+//         {type:'ui_action', action:'mic_chunk', value:{pcm_b64, channel}}
+//         {type:'ui_action', action:'mic_error', value:'…'}
+
+// Neutralize the preload's pre-wire queue (it buffers frames until the page
+// defines __agentMsg) — this page consumes via apprentice.onMessage instead.
+window.__agentMsg = function () {};
+
+const send = (m) => { try { window.apprentice.send(m); } catch (_) {} };
+
+function bytesFromB64(b64) {
+  const s = atob(b64);
+  const u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return u;
+}
+function b64FromBytes(u8) {
+  let s = '';
+  const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  }
+  return btoa(s);
+}
+
+// ---------- playback ----------
+
+let ctx = null;
+function ensureCtx() {
+  if (!ctx) ctx = new AudioContext();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+// One utterance at a time (main feeds serially). PCM streams schedule chunk
+// by chunk on a running timeline; MP3 accumulates and decodes on audio_end.
+let P = null;
+function resetPlayback(stopSources) {
+  if (P && stopSources) {
+    for (const src of P.sources) { try { src.onended = null; src.stop(); } catch (_) {} }
+  }
+  P = null;
+}
+function beginUtterance(id, format, rate, speed) {
+  resetPlayback(true);
+  P = {
+    id, format, rate: rate || 24000, speed: speed || 1,
+    nextTime: 0, pendingSources: 0, endReceived: false, doneSent: false,
+    decoding: false, mp3Parts: [], carry: new Uint8Array(0), sources: []
+  };
+}
+
+function maybeDone() {
+  if (!P || P.doneSent || !P.endReceived || P.decoding || P.pendingSources > 0) return;
+  P.doneSent = true;
+  send({ type: 'ui_action', action: 'audio_done', value: P.id });
+  P = null;
+}
+
+function startBuffer(buf) {
+  const c = ensureCtx();
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const speed = P.speed || 1;
+  src.playbackRate.value = speed;
+  src.connect(c.destination);
+  const t = Math.max(c.currentTime, P.nextTime);
+  src.start(t);
+  P.nextTime = t + buf.duration / speed;
+  P.pendingSources++;
+  P.sources.push(src);
+  const mine = P;
+  src.onended = () => {
+    if (P !== mine) return; // superseded by a newer utterance/stop
+    P.pendingSources--;
+    maybeDone();
+  };
+}
+
+function schedulePcm(bytes) {
+  // Stitch chunk boundaries: a sample may be split across frames.
+  const unit = P.format === 'pcm_f32' ? 4 : 2;
+  let all = bytes;
+  if (P.carry.length) {
+    all = new Uint8Array(P.carry.length + bytes.length);
+    all.set(P.carry, 0); all.set(bytes, P.carry.length);
+  }
+  const usable = all.length - (all.length % unit);
+  P.carry = all.subarray(usable);
+  if (usable === 0) return;
+  const body = all.slice(0, usable); // copy → aligned ArrayBuffer
+  let f32;
+  if (P.format === 'pcm_f32') {
+    f32 = new Float32Array(body.buffer);
+  } else {
+    const i16 = new Int16Array(body.buffer);
+    f32 = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+  }
+  if (f32.length === 0) return;
+  const c = ensureCtx();
+  const buf = c.createBuffer(1, f32.length, P.rate);
+  buf.getChannelData(0).set(f32);
+  startBuffer(buf);
+}
+
+function onAudioPlay(m) {
+  if (!m.id || !m.chunk_b64) return;
+  if (!P || P.id !== m.id) beginUtterance(m.id, m.format, m.rate, m.speed);
+  const bytes = bytesFromB64(m.chunk_b64);
+  if (P.format === 'mp3') P.mp3Parts.push(bytes);
+  else schedulePcm(bytes);
+}
+
+function onAudioEnd(m) {
+  if (!P || P.id !== m.id) return;
+  P.endReceived = true;
+  if (P.format === 'mp3' && P.mp3Parts.length) {
+    let total = 0;
+    for (const p of P.mp3Parts) total += p.length;
+    const joined = new Uint8Array(total);
+    let off = 0;
+    for (const p of P.mp3Parts) { joined.set(p, off); off += p.length; }
+    P.mp3Parts = [];
+    P.decoding = true;
+    const mine = P;
+    ensureCtx().decodeAudioData(joined.buffer).then(
+      (buf) => {
+        if (P !== mine) return;
+        P.decoding = false;
+        startBuffer(buf);
+        maybeDone();
+      },
+      () => {
+        if (P !== mine) return;
+        P.decoding = false;
+        maybeDone(); // decode failed — report done so the queue advances
+      }
+    );
+    return;
+  }
+  maybeDone();
+}
+
+function onAudioStop() {
+  resetPlayback(true); // hard flush, no audio_done
+}
+
+// ---------- mic capture ----------
+// 16kHz mono Int16 PCM chunks, base64, as ui_action mic_chunk frames.
+
+const TARGET_RATE = 16000;
+let mic = null; // { taps: [{ctx, stream, src, proc, gain}] }
+
+function makeTap(stream, channel) {
+  let c;
+  try { c = new AudioContext({ sampleRate: TARGET_RATE }); }
+  catch (_) { c = new AudioContext(); }
+  const src = c.createMediaStreamSource(stream);
+  const proc = c.createScriptProcessor(2048, 1, 1);
+  const gain = c.createGain();
+  gain.gain.value = 0; // ScriptProcessor needs a downstream sink; keep silent
+  proc.onaudioprocess = (e) => {
+    let f = e.inputBuffer.getChannelData(0);
+    if (c.sampleRate !== TARGET_RATE) f = resampleTo16k(f, c.sampleRate);
+    const i16 = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) {
+      const s = Math.max(-1, Math.min(1, f[i]));
+      i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    send({
+      type: 'ui_action', action: 'mic_chunk',
+      value: { pcm_b64: b64FromBytes(new Uint8Array(i16.buffer)), channel }
+    });
+  };
+  src.connect(proc); proc.connect(gain); gain.connect(c.destination);
+  return { ctx: c, stream, src, proc, gain };
+}
+
+function resampleTo16k(f, fromRate) {
+  const ratio = fromRate / TARGET_RATE;
+  const out = new Float32Array(Math.floor(f.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0 + 1, f.length - 1);
+    out[i] = f[i0] + (f[i1] - f[i0]) * (pos - i0);
+  }
+  return out;
+}
+
+function startMic(captureSys) {
+  if (mic) return;
+  mic = { taps: [] };
+  navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      sampleRate: TARGET_RATE,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  }).then((stream) => {
+    if (!mic) { stream.getTracks().forEach((t) => t.stop()); return; }
+    mic.taps.push(makeTap(stream, 'mic'));
+  }).catch((err) => {
+    send({ type: 'ui_action', action: 'mic_error', value: String(err) });
+  });
+
+  if (captureSys) {
+    // System-audio loopback (Windows; main installs the display-media
+    // handler that grants audio:'loopback'). Video track is discarded.
+    navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then((stream) => {
+      stream.getVideoTracks().forEach((t) => t.stop());
+      if (!mic || stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      mic.taps.push(makeTap(stream, 'sys'));
+    }).catch(() => { /* loopback unavailable — mic-only call */ });
+  }
+}
+
+function stopMic() {
+  if (!mic) return;
+  for (const t of mic.taps) {
+    try { t.proc.disconnect(); t.src.disconnect(); t.gain.disconnect(); } catch (_) {}
+    try { t.stream.getTracks().forEach((tr) => tr.stop()); } catch (_) {}
+    try { t.ctx.close(); } catch (_) {}
+  }
+  mic = null;
+}
+
+// ---------- wire ----------
+
+window.apprentice.onMessage((m) => {
+  switch (m.type) {
+    case 'audio_play': onAudioPlay(m); break;
+    case 'audio_end': onAudioEnd(m); break;
+    case 'audio_stop': onAudioStop(); break;
+    case 'audio_mic_start': startMic(!!m.capture_sys); break;
+    case 'audio_mic_stop': stopMic(); break;
+    default: break; // agent frames fan out here too — ignore
+  }
+});
+</script>
+</body>
+</html>

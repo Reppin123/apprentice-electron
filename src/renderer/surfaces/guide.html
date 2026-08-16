@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apprentice — the manual, made of light</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  :root{
+    --bg:#050506; --ink:#f3f1ea; --dim:#8a887f; --faint:#4a483f;
+    --line:rgba(243,241,234,.06); --line2:rgba(243,241,234,.035);
+    --indigo:#6a7bff; --blue:#5b6cff; --red:#ff6b6b; --teal:#34e3c4;
+    --amber:#ffce5c; --lilac:#b58cff; --violet:#b264ff;
+    --accent:106,123,255;
+  }
+  html{scroll-behavior:smooth;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;
+    background:
+      radial-gradient(120% 80% at 6% -10%, #100f1c 0%, transparent 48%),
+      radial-gradient(100% 70% at 100% 4%, #0c1414 0%, transparent 42%),
+      var(--bg);
+    background-attachment:fixed;
+    color:var(--ink);-webkit-font-smoothing:antialiased;overflow-x:hidden;font-weight:300;}
+
+  /* ----------- scene scaffold (the Rubin grammar) ----------- */
+  .scene{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
+    padding:9vh 7vw;border-bottom:1px solid #0e0e12;position:relative;}
+  .num{font-size:12px;letter-spacing:3px;color:var(--faint);text-transform:uppercase;margin-bottom:20px;}
+  .kicker{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--kc,var(--indigo));margin-bottom:16px;}
+  h1{font-size:clamp(40px,6.6vw,94px);font-weight:600;letter-spacing:-0.045em;line-height:0.98;}
+  h1 .thin{font-weight:200;color:var(--dim);}
+  h2{font-size:clamp(26px,4vw,52px);font-weight:600;letter-spacing:-0.03em;line-height:1.05;max-width:19ch;}
+  .lead{font-size:clamp(16px,1.6vw,21px);color:var(--dim);max-width:64ch;line-height:1.62;margin-top:22px;font-weight:300;}
+  .lead b{color:var(--ink);font-weight:500;}
+  .lead i{font-style:normal;color:var(--ink);}
+  .cap{font-size:13px;color:var(--dim);margin-top:16px;line-height:1.55;max-width:52ch;}
+  .cap b{color:var(--ink);}
+  .stage{margin-top:46px;}
+  .end{font-size:clamp(24px,3.4vw,46px);font-weight:200;line-height:1.22;letter-spacing:-0.02em;max-width:24ch;}
+  .end b{font-weight:600;}
+  .pillline{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px;}
+  .pill{font-size:13px;color:var(--dim);border:1px solid #1c1d24;border-radius:999px;padding:8px 15px;}
+  .pill b{color:var(--ink);font-weight:500;}
+
+  /* reveal on scroll */
+  .rv{opacity:0;transform:translateY(24px);transition:opacity .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1);}
+  .rv.in{opacity:1;transform:none;}
+
+  /* ----------- top rail (bare words, no chrome) ----------- */
+  .rail{position:fixed;top:0;left:0;right:0;z-index:90;display:flex;align-items:center;gap:22px;
+    padding:16px 7vw;background:linear-gradient(180deg,rgba(5,5,6,.92),rgba(5,5,6,.0));backdrop-filter:blur(10px);}
+  .rail .brand{font-size:13px;color:var(--dim);letter-spacing:.2px;}
+  .rail .brand b{color:var(--ink);font-weight:500;}
+  .rail .nav{margin-left:auto;display:flex;gap:20px;flex-wrap:wrap;}
+  .rail a{font-size:12.5px;color:var(--faint);text-decoration:none;transition:.18s;}
+  .rail a:hover,.rail a.on{color:var(--ink);}
+  @media(max-width:720px){.rail .nav{display:none;}}
+
+  /* ambient corner auras */
+  .aura{position:fixed;width:460px;height:460px;border-radius:50%;filter:blur(120px);opacity:.16;
+    mix-blend-mode:screen;pointer-events:none;z-index:0;}
+  .scene>*{position:relative;z-index:1;}
+
+  /* ============ HOTKEYS ============ */
+  .keyring{margin-top:42px;max-width:880px;}
+  .kgroup{font-size:11px;letter-spacing:2.4px;text-transform:uppercase;color:var(--faint);padding:26px 4px 6px;margin-top:10px;border-top:1px solid var(--line2);}
+  .krow{display:flex;align-items:center;gap:26px;padding:20px 4px;border-bottom:1px solid var(--line2);
+    cursor:default;transition:.25s;position:relative;}
+  .krow:hover,.krow.lit{background:linear-gradient(90deg,color-mix(in srgb,var(--kc) 7%,transparent),transparent 70%);}
+  .kcombo{flex:none;display:flex;align-items:center;gap:7px;width:210px;}
+  .kk{font-size:14px;color:var(--ink);min-width:30px;text-align:center;padding:8px 11px;border-radius:9px;
+    background:rgba(243,241,234,.04);border:1px solid rgba(243,241,234,.09);transition:.2s;font-weight:400;}
+  .krow.lit .kk{background:color-mix(in srgb,var(--kc) 26%,transparent);border-color:var(--kc);
+    color:#fff;box-shadow:0 0 18px -3px var(--kc);}
+  .kplus{color:var(--faint);font-size:12px;}
+  .khold{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--kc);margin-left:4px;font-weight:500;}
+  .ktext{flex:1;}
+  .ktitle{font-size:16px;color:var(--ink);font-weight:400;letter-spacing:-0.01em;}
+  .kdesc{font-size:13px;color:var(--dim);margin-top:4px;line-height:1.5;}
+  .korb{flex:none;width:14px;height:14px;border-radius:50%;background:var(--kc);filter:blur(5px);opacity:.18;
+    transition:.3s;mix-blend-mode:screen;}
+  .krow.lit .korb{opacity:.95;filter:blur(3px);box-shadow:0 0 16px var(--kc);animation:kpulse 1.8s ease-in-out infinite;}
+  @keyframes kpulse{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.25);opacity:1}}
+  .tryline{margin-top:24px;font-size:13.5px;color:var(--dim);display:flex;align-items:center;gap:12px;}
+  .tryline .d{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);
+    animation:kpulse 2.4s ease-in-out infinite;flex:none;}
+  .tryline b{color:var(--ink);font-weight:500;}
+
+  /* ============ generic demo window (summon + inspector share the frame) ============ */
+  .frame{position:relative;border-radius:18px;overflow:hidden;border:1px solid #14151c;
+    background:radial-gradient(120% 90% at 50% -8%,rgba(var(--accent),.10),transparent 60%),rgba(11,12,18,.985);
+    box-shadow:0 40px 120px -36px rgba(0,0,0,.9);}
+  .lights{display:flex;gap:7px;} .lights i{width:11px;height:11px;border-radius:50%;display:block;}
+  .lights .r{background:#ff5f57;}.lights .y{background:#febc2e;}.lights .g{background:#28c840;}
+
+  /* ---- SUMMON demo ---- */
+  .summon{width:min(960px,94vw);height:560px;}
+  .s-doc{position:absolute;inset:0;padding:64px 60px;z-index:0;}
+  .s-doc .ln{height:8px;border-radius:3px;background:#101119;margin:16px 0;}
+  .s-doc .ln.s{width:48%}.s-doc .ln.m{width:72%}.s-doc .ln.l{width:88%}
+  .s-hue{position:absolute;border-radius:50%;filter:blur(26px);mix-blend-mode:screen;pointer-events:none;z-index:0;}
+  @keyframes drift{0%,100%{transform:translate(0,0)}50%{transform:translate(12px,-10px)}}
+  @keyframes liveb{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.14);opacity:.92}}
+  @keyframes needb{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.2);opacity:.95}}
+  .cluster{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:6;width:min(520px,84%);
+    display:flex;flex-direction:column;gap:13px;}
+  .clusterglow{position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);width:560px;height:420px;border-radius:50%;
+    background:var(--beam,var(--indigo));filter:blur(90px);opacity:.12;mix-blend-mode:screen;z-index:-1;transition:.4s;pointer-events:none;}
+  .surf{position:relative;border-radius:20px;background:rgba(10,11,16,.62);backdrop-filter:blur(22px) saturate(1.2);
+    border:1px solid color-mix(in srgb,var(--beam,var(--indigo)) 16%,rgba(243,241,234,.05));
+    box-shadow:0 26px 80px rgba(0,0,0,.55);max-height:330px;overflow-y:auto;transition:border-color .3s;}
+  .surfwrap{padding:6px 0 10px;}
+  .beam{display:flex;align-items:center;gap:13px;padding:15px 19px;border-radius:18px;background:rgba(10,11,16,.7);
+    backdrop-filter:blur(18px);border:1px solid color-mix(in srgb,var(--beam,var(--indigo)) 30%,rgba(243,241,234,.05));
+    box-shadow:0 14px 44px rgba(0,0,0,.5),0 0 40px -14px var(--beam,var(--indigo));transition:.3s;}
+  .beam .o{width:13px;height:13px;border-radius:50%;background:var(--beam,var(--indigo));filter:blur(3px);flex:none;
+    box-shadow:0 0 14px var(--beam,var(--indigo));}
+  .beam input{flex:1;background:none;border:none;outline:none;color:var(--ink);font-size:15px;font-family:inherit;font-weight:300;}
+  .beam input::placeholder{color:rgba(243,241,234,.3);}
+  .beam .mode{font-size:12.5px;color:var(--beam,var(--indigo));white-space:nowrap;opacity:.85;}
+  .whead{font-size:11px;color:var(--faint);padding:15px 22px 7px;letter-spacing:.2px;}
+  .back{font-size:12px;color:var(--dim);padding:13px 22px 2px;cursor:pointer;}.back:hover{color:var(--ink);}
+  .arow{display:flex;align-items:flex-start;gap:15px;padding:12px 22px;cursor:pointer;transition:.14s;}
+  .arow:hover{background:rgba(243,241,234,.025);}
+  .ah{flex:none;border-radius:50%;mix-blend-mode:screen;filter:blur(6px);margin-top:3px;}
+  .anm{font-size:14.5px;letter-spacing:-0.01em;}
+  .ast{font-size:12px;color:var(--dim);margin-top:3px;}.ast.need{color:#f4cf8a;}
+  .verbs{display:flex;gap:14px;opacity:0;transition:.16s;margin-top:5px;}
+  .arow:hover .verbs{opacity:1;}
+  .vw{font-size:11.5px;color:var(--faint);cursor:pointer;}.vw:hover{color:var(--ink);}.vw.danger:hover{color:#ff9a9a;}
+  .jumps{display:flex;gap:24px;padding:15px 22px;border-top:1px solid var(--line2);margin-top:4px;}
+  .jw{font-size:13px;color:var(--dim);cursor:pointer;}.jw:hover{color:var(--ink);}
+  .beginrow{font-size:13px;color:var(--dim);padding:13px 22px;cursor:pointer;}.beginrow:hover{color:var(--ink);}
+  .strand{padding:6px 22px 16px;}
+  .strand .snm{font-size:17px;font-weight:600;letter-spacing:-0.02em;margin:8px 0 12px;}
+  .strand .past{font-size:13px;color:var(--faint);margin:6px 0;}
+  .strand .now{font-size:14.5px;color:var(--ink);margin:10px 0 0;line-height:1.45;}
+  .strand .v2{display:flex;gap:16px;margin-top:18px;}
+  .filters{display:flex;gap:18px;padding:4px 22px 10px;}
+  .fw{font-size:12.5px;color:var(--faint);cursor:pointer;}.fw:hover{color:var(--dim);}.fw.on{color:var(--ink);}
+  .rule{padding:9px 22px;cursor:pointer;}
+  .rule .rt{font-size:14px;letter-spacing:-0.01em;transition:.15s;}
+  .rule .rdetail{max-height:0;overflow:hidden;transition:.32s;}
+  .rule.open .rdetail{max-height:120px;margin-top:8px;}
+  .rdetail .ln1{font-size:12.5px;color:var(--faint);margin:4px 0;}.rdetail .ln1 .b{color:var(--ink);}
+  .rdetail .prov{font-size:11.5px;color:var(--faint);font-style:italic;margin-top:7px;}
+  .tgroup{padding:4px 22px 8px;}
+  .tgl{font-size:11px;color:var(--faint);margin:15px 0 11px;letter-spacing:.3px;}
+  .trw{display:flex;align-items:center;gap:14px;margin:13px 0;font-size:13.5px;}
+  .trw .lbl{color:var(--dim);width:128px;flex:none;}.trw .val{color:var(--ink);}
+  .depth{flex:1;height:16px;border-radius:8px;position:relative;cursor:pointer;overflow:hidden;
+    background:linear-gradient(90deg,rgba(106,123,255,.06),rgba(106,123,255,.5));}
+  .depth .node{position:absolute;top:50%;left:60%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;
+    background:#fff;box-shadow:0 0 14px var(--indigo);}
+  .depthword{width:58px;flex:none;color:var(--ink);}
+  .spectrum{display:flex;gap:15px;}
+  .sw{width:28px;height:28px;border-radius:50%;filter:blur(4px);cursor:pointer;transition:.16s;opacity:.42;mix-blend-mode:screen;}
+  .sw:hover,.sw.on{opacity:1;transform:scale(1.18);}
+  .stateword{cursor:pointer;color:var(--ink);transition:.2s;}.stateword.off{color:var(--faint);}
+  .toolrow{display:flex;align-items:center;gap:14px;padding:11px 22px;cursor:pointer;transition:.14s;}
+  .toolrow:hover{background:rgba(243,241,234,.025);}
+  .toolrow .tl{width:13px;height:13px;border-radius:50%;flex:none;filter:blur(2px);background:var(--lilac);}
+  .toolrow.dim .tl{background:#2a2b33;filter:none;}.toolrow.dim .tn{color:var(--dim);}
+  .toolrow.conn .tl{box-shadow:0 0 12px var(--lilac);}
+  .toolrow .tn{font-size:13.5px;}.toolrow .th{margin-left:auto;font-size:11.5px;color:var(--faint);}
+  .spawn{padding:26px 22px 22px;text-align:center;}
+  .spawnbud{width:64px;height:64px;border-radius:50%;background:var(--lilac);filter:blur(15px);margin:0 auto 18px;
+    mix-blend-mode:screen;animation:liveb 2.6s ease-in-out infinite;}
+  .spawn .task{font-size:15px;color:var(--ink);}.spawn .sub{font-size:12.5px;color:var(--dim);margin-top:9px;}
+  .empty{padding:24px;text-align:center;font-size:13px;color:var(--faint);}
+
+  /* ---- INSPECTOR demo ---- */
+  .insp{width:min(960px,94vw);height:560px;display:flex;flex-direction:column;}
+  .tbar{height:46px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);}
+  .wt{font-size:13px;color:var(--faint);}.wt b{color:var(--ink);font-weight:500;}
+  .itabs{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;}
+  .itab{font-size:12.5px;color:var(--dim);padding:6px 13px;border-radius:8px;cursor:pointer;transition:.16s;}
+  .itab:hover{color:var(--ink);}.itab.on{color:var(--ink);background:rgba(var(--accent),.18);}
+  .ipanel{flex:1;min-height:0;display:none;}.ipanel.on{display:flex;flex-direction:column;}
+  .ghead{font-size:10.5px;letter-spacing:1.6px;text-transform:lowercase;color:var(--faint);padding:16px 20px 7px;}
+  .rtools{display:flex;align-items:center;gap:16px;padding:11px 20px;border-bottom:1px solid var(--line2);flex-wrap:wrap;}
+  .isearch{margin-left:auto;display:flex;align-items:center;gap:8px;background:rgba(243,241,234,.04);
+    border:1px solid rgba(var(--accent),.28);border-radius:11px;padding:6px 11px;width:190px;}
+  .isearch .o{width:6px;height:6px;border-radius:50%;background:rgb(var(--accent));box-shadow:0 0 8px rgb(var(--accent));}
+  .isearch input{background:none;border:none;outline:none;color:var(--ink);font-size:12.5px;font-family:inherit;font-weight:300;width:100%;}
+  .isearch input::placeholder{color:var(--faint);}
+  .rbody{flex:1;display:flex;min-height:0;}
+  .rlist{width:42%;border-right:1px solid var(--line);overflow-y:auto;}
+  .rrow{padding:12px 20px;cursor:pointer;border-left:2px solid transparent;}
+  .rrow:hover{background:rgba(243,241,234,.022);}
+  .rrow.sel{background:rgba(var(--accent),.1);border-left-color:rgb(var(--accent));}
+  .rrow .rtext{font-size:13px;line-height:1.45;}
+  .rrow.retired .rtext{text-decoration:line-through;text-decoration-color:rgba(243,241,234,.18);}
+  .rmeta{margin-top:5px;font-size:11px;color:var(--faint);}.rmeta .taught{color:var(--amber);}
+  .rdet{flex:1;overflow-y:auto;padding:24px 26px;}
+  .dc{font-size:16px;line-height:1.5;letter-spacing:-0.01em;color:var(--ink);}
+  .dev{font-size:12.5px;color:var(--dim);margin-top:13px;padding-left:12px;border-left:2px solid rgba(var(--accent),.3);
+    font-family:ui-monospace,monospace;line-height:1.5;}
+  .dsect{font-size:10.5px;letter-spacing:1.6px;text-transform:lowercase;color:var(--faint);margin:26px 0 12px;}
+  .dkv{display:grid;grid-template-columns:104px 1fr;row-gap:11px;column-gap:13px;font-size:13px;}
+  .dkv .k{color:var(--faint);}.dkv .v{color:var(--ink);}.dkv .v .t{color:var(--dim);}
+  .behave{display:flex;gap:32px;}
+  .bn{font-size:11.5px;color:var(--faint);}.bn b{display:block;font-size:22px;color:var(--ink);font-weight:300;margin-bottom:3px;}
+  .bn .pos{color:rgb(var(--accent));}
+  .retbar{font-size:12.5px;color:var(--amber);background:rgba(245,209,138,.07);border:1px solid rgba(245,209,138,.18);
+    border-radius:10px;padding:10px 13px;margin-top:14px;line-height:1.5;}
+  .iempty{color:var(--faint);font-size:13px;display:flex;align-items:center;justify-content:center;height:100%;}
+  .mbody{flex:1;overflow-y:auto;padding:4px 0 22px;}.mcol{max-width:680px;margin:0 auto;}
+  .mfact{padding:13px 22px;display:flex;gap:12px;align-items:flex-start;}.mfact:hover{background:rgba(243,241,234,.015);}
+  .mdot{width:6px;height:6px;border-radius:50%;background:rgba(var(--accent),.55);flex:none;margin-top:7px;}
+  .mtext{font-size:13.5px;line-height:1.45;color:var(--ink);}.mmeta{font-size:11px;color:var(--faint);margin-top:4px;}
+  .mmeta .you{color:var(--amber);}
+  .wfrow{padding:14px 22px;border-bottom:1px solid var(--line2);cursor:pointer;}.wfrow:hover{background:rgba(243,241,234,.02);}
+  .wfn{font-size:14px;color:var(--ink);}.wfs{font-size:12px;color:var(--dim);margin-top:4px;}
+  .wfsteps{font-size:11.5px;color:var(--faint);margin-top:6px;font-family:ui-monospace,monospace;}
+  /* inspector · noticed */
+  .ncard{margin:8px 22px;padding:14px 16px;border-radius:12px;background:rgba(243,241,234,.03);border:1px solid rgba(245,209,138,.14);}
+  .nh{display:flex;align-items:center;gap:9px;}
+  .nh .nd{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 5px var(--amber);flex:none;}
+  .nh .nt{font-size:14px;color:var(--ink);flex:1;}.nh .ns{font-size:11px;color:var(--faint);}
+  .nfacts{margin:9px 0 0;padding-left:12px;border-left:2px solid rgba(245,209,138,.3);}
+  .nfact{font-size:12px;color:var(--dim);font-family:ui-monospace,monospace;margin:2px 0;}
+  .nprop{font-size:12.5px;color:var(--dim);margin-top:9px;line-height:1.5;}
+  .nfyi{display:flex;gap:13px;align-items:flex-start;padding:11px 24px;}
+  .nfyi .fd{width:6px;height:6px;border-radius:50%;background:rgba(var(--accent),.55);flex:none;margin-top:7px;}
+  .nfyi .ft{font-size:13px;color:var(--ink);}.nfyi .fm{font-size:11px;color:var(--faint);margin-top:4px;}
+  /* inspector · usage */
+  .uwins{display:flex;gap:10px;padding:0 22px;}
+  .uwin{flex:1;padding:13px;border-radius:12px;background:rgba(243,241,234,.03);border:1px solid var(--line);}
+  .uwin .uw{font-size:11px;letter-spacing:1px;color:var(--faint);}
+  .uwin .uc{font-size:18px;color:var(--ink);margin-top:4px;}
+  .uwin .ut{font-size:11px;color:var(--dim);margin-top:3px;}
+  .uwin .uk{font-size:10.5px;color:var(--dim);font-family:ui-monospace,monospace;margin-top:2px;}
+  .uwin .um{font-size:10.5px;color:var(--faint);margin-top:2px;}
+  .unote{font-size:10.5px;color:var(--faint);padding:8px 24px 0;line-height:1.5;}
+  .ufrow{display:flex;gap:12px;align-items:flex-start;padding:10px 24px;}
+  .ufrow .ufd{width:6px;height:6px;border-radius:50%;flex:none;margin-top:6px;}
+  .ufd.on{background:rgba(var(--accent),.7);}.ufd.off{background:rgba(122,120,112,.45);}
+  .ufh{display:flex;align-items:center;gap:8px;}
+  .ufl{font-size:13.5px;color:var(--ink);}.ufm{font-size:11px;color:var(--dim);font-family:ui-monospace,monospace;}
+  .ufc{font-size:10.5px;color:var(--faint);margin-left:auto;}
+  .ufn{font-size:11px;color:var(--faint);margin-top:4px;line-height:1.4;}
+  .ubadge{font-size:9.5px;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:1px 7px;}
+  .uswitch{width:30px;height:17px;border-radius:999px;background:rgba(var(--accent),.55);position:relative;cursor:pointer;flex:none;transition:.2s;}
+  .uswitch .kn{position:absolute;top:2px;left:15px;width:13px;height:13px;border-radius:50%;background:#fff;transition:.2s;}
+  .uswitch.off{background:rgba(255,255,255,.1);}.uswitch.off .kn{left:2px;}
+  .urow{display:flex;gap:12px;align-items:center;padding:7px 24px;}
+  .urt{font-size:12px;color:var(--dim);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .uro{font-size:10.5px;color:var(--faint);font-family:ui-monospace,monospace;}
+  .urc{font-size:10.5px;color:var(--dim);font-family:ui-monospace,monospace;width:54px;text-align:right;}
+  .urs{font-size:10.5px;color:var(--faint);width:44px;text-align:right;}
+
+  /* ============ animated concept stages (capture / learn / correct / workflow) ============ */
+  .demo{width:min(880px,94vw);border-radius:18px;border:1px solid #14151c;overflow:hidden;
+    background:radial-gradient(120% 90% at 50% -8%,rgba(var(--accent),.07),transparent 60%),rgba(10,11,16,.7);}
+  .demo .dbar{display:flex;align-items:center;gap:13px;padding:14px 20px;border-bottom:1px solid var(--line2);}
+  .demo .dbar .t{font-size:12px;color:var(--faint);}
+  .runbtn{margin-left:auto;font-size:12.5px;color:var(--ink);cursor:pointer;padding:6px 15px;border-radius:9px;
+    border:1px solid color-mix(in srgb,var(--kc) 34%,transparent);background:color-mix(in srgb,var(--kc) 12%,transparent);
+    transition:.2s;user-select:none;}
+  .runbtn:hover{background:color-mix(in srgb,var(--kc) 22%,transparent);box-shadow:0 0 22px -8px var(--kc);}
+  .dbody{padding:20px 24px;min-height:188px;}
+
+  /* capture: a rule brightening */
+  .capr{display:flex;align-items:center;gap:16px;margin:14px 0;opacity:.5;transition:.7s;}
+  .capr .ci{width:11px;height:11px;border-radius:50%;background:var(--teal);filter:blur(3px);opacity:.3;transition:.7s;flex:none;}
+  .capr .ctxt{font-size:14.5px;color:rgba(243,241,234,.5);transition:.7s;}
+  .capr .cmeta{margin-left:auto;font-size:11.5px;color:var(--faint);transition:.4s;}
+  .capr.b1 .ctxt{color:rgba(243,241,234,.72);}.capr.b1 .ci{opacity:.6;}
+  .capr.b2 .ctxt{color:rgba(243,241,234,.97);text-shadow:0 0 16px color-mix(in srgb,var(--teal) 50%,transparent);}
+  .capr.b2 .ci{opacity:1;box-shadow:0 0 14px var(--teal);}
+
+  /* learn: pipeline */
+  .pipe{display:flex;align-items:stretch;gap:0;margin-top:4px;}
+  .pstep{flex:1;text-align:center;padding:14px 8px;position:relative;opacity:.32;transition:.5s;}
+  .pstep.on{opacity:1;}
+  .pstep .pn{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--kc);}
+  .pstep .pd{font-size:12.5px;color:var(--dim);margin-top:7px;line-height:1.4;}
+  .pstep.on .pd{color:var(--ink);}
+  .pstep:not(:last-child):after{content:"";position:absolute;right:-1px;top:18px;bottom:18px;width:1px;background:var(--line);}
+  .folderline{font-size:13px;color:var(--dim);margin:2px 0 14px;font-family:ui-monospace,monospace;}
+  .folderline b{color:var(--ink);font-weight:400;}
+  .learned{margin-top:16px;display:flex;flex-direction:column;gap:8px;}
+  .lrule{font-size:13.5px;color:var(--ink);opacity:0;transform:translateY(6px);transition:.5s;display:flex;align-items:center;gap:10px;}
+  .lrule.show{opacity:1;transform:none;}
+  .lrule .d{width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal);flex:none;}
+
+  /* correct: superseding */
+  .ce{font-family:ui-monospace,monospace;font-size:13px;color:var(--dim);background:rgba(243,241,234,.03);
+    border:1px solid var(--line);border-radius:11px;padding:12px 15px;}
+  .ce .you{color:var(--amber);}
+  .cflow{display:flex;gap:26px;margin-top:20px;flex-wrap:wrap;}
+  .ccol{flex:1;min-width:220px;}
+  .ccol .h{font-size:11px;letter-spacing:1.4px;text-transform:lowercase;color:var(--faint);margin-bottom:10px;}
+  .cold,.cnew{font-size:14px;padding:11px 0;transition:.7s;}
+  .cold{color:var(--dim);}
+  .cold.retired{text-decoration:line-through;text-decoration-color:rgba(243,241,234,.25);color:var(--faint);}
+  .cnew{color:rgba(243,241,234,.4);}
+  .cnew.show{color:var(--ink);text-shadow:0 0 16px color-mix(in srgb,var(--amber) 45%,transparent);}
+  .cnew .tag{font-size:11px;color:var(--amber);margin-left:8px;}
+  .cnote{font-size:12px;color:var(--faint);margin-top:8px;font-style:italic;}
+
+  /* workflow run */
+  .wfcard{border:1px solid var(--line);border-radius:13px;padding:16px 18px;background:rgba(243,241,234,.018);}
+  .wfcard .nm{font-size:15px;color:var(--ink);}
+  .wfcard .meta{font-size:12px;color:var(--faint);margin-top:4px;}
+  .steps{margin-top:14px;display:flex;flex-direction:column;gap:2px;}
+  .step{display:flex;align-items:center;gap:12px;padding:9px 0;font-size:13.5px;color:var(--dim);transition:.4s;
+    font-family:ui-monospace,monospace;}
+  .step .sd{width:9px;height:9px;border-radius:50%;background:#2a2b33;flex:none;transition:.4s;}
+  .step.done{color:var(--ink);}.step.done .sd{background:var(--lilac);box-shadow:0 0 12px var(--lilac);}
+  .step.active .sd{background:var(--lilac);box-shadow:0 0 16px var(--lilac);animation:kpulse 1s ease-in-out infinite;}
+  /* workflow lifecycle (offer → save → reuse) */
+  .wfoffer{font-size:15px;color:var(--ink);line-height:1.6;}
+  .wfoffer .who{color:var(--lilac);font-weight:500;}
+  .wfoffer .ask{color:var(--dim);font-style:italic;}
+  .wfbtns{display:flex;gap:12px;margin-top:16px;align-items:center;}
+  .wfbtn{font-size:12.5px;cursor:pointer;padding:8px 16px;border-radius:9px;transition:.2s;user-select:none;}
+  .wfbtn.yes{color:#160e02;background:linear-gradient(180deg,#e9d3ff,var(--lilac));border:1px solid transparent;font-weight:600;}
+  .wfbtn.yes:hover{box-shadow:0 0 22px -6px var(--lilac);transform:translateY(-1px);}
+  .wfbtn.no{color:var(--dim);border:1px solid var(--line);}
+  .wfbtn.no:hover{color:var(--ink);}
+  .wfreset{font-size:12px;color:var(--faint);cursor:pointer;}.wfreset:hover{color:var(--ink);}
+  .wfsaved{opacity:0;max-height:0;overflow:hidden;transition:opacity .55s,max-height .65s;}
+  .wfsaved.show{opacity:1;max-height:600px;}
+  .cardhd{display:flex;align-items:center;gap:14px;}.cardhd .nm{flex:1;}
+  .runbtn.sm{font-size:11.5px;padding:5px 13px;}
+  .wfnote{font-size:12.5px;color:var(--faint);margin-top:12px;}.wfnote b{color:var(--dim);}
+  .wftrust{margin-top:22px;display:flex;flex-direction:column;gap:11px;max-width:62ch;}
+  .wttrow{font-size:13.5px;color:var(--dim);display:flex;gap:12px;align-items:flex-start;line-height:1.5;}
+  .wttrow .wd{width:7px;height:7px;border-radius:50%;background:var(--lilac);box-shadow:0 0 9px var(--lilac);flex:none;margin-top:6px;opacity:.75;}
+  .wttrow b{color:var(--ink);font-weight:500;}
+
+  /* ============ what it can do ============ */
+  .cando{margin-top:40px;max-width:860px;}
+  .cdrow{display:flex;align-items:center;gap:20px;padding:17px 6px;border-bottom:1px solid var(--line2);transition:background .3s;}
+  .cdrow:last-child{border-bottom:none;}
+  .cdrow:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--cc) 8%,transparent),transparent 72%);}
+  .cddot{width:13px;height:13px;border-radius:50%;background:var(--cc);filter:blur(4px);opacity:.45;flex:none;
+    transition:.3s;animation:cdbreathe 4.6s ease-in-out infinite;}
+  .cdrow:hover .cddot{opacity:1;box-shadow:0 0 16px var(--cc);filter:blur(2px);}
+  @keyframes cdbreathe{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:.82;transform:scale(1.18)}}
+  .cdtitle{font-size:17px;color:var(--ink);width:210px;flex:none;letter-spacing:-0.01em;}
+  .cdtag{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--red);margin-left:9px;vertical-align:middle;}
+  .cdex{font-size:15px;color:var(--dim);flex:1;min-width:0;transition:opacity .35s;}
+  .cdex .q{color:var(--faint);}
+  .cdrow:hover .cdex{color:var(--ink);}
+  @media(max-width:640px){.cdrow{flex-wrap:wrap;gap:10px}.cdtitle{width:auto}}
+
+  /* small helper */
+  .lede-keys{display:inline-flex;gap:5px;align-items:center;vertical-align:middle;}
+  .lk{font-size:12px;padding:3px 8px;border-radius:7px;background:rgba(243,241,234,.05);border:1px solid rgba(243,241,234,.1);color:var(--ink);}
+</style>
+</head>
+<body>
+
+<div class="aura" id="auraA" style="background:var(--indigo);top:-120px;left:-120px;"></div>
+<div class="aura" id="auraB" style="background:var(--teal);bottom:-160px;right:-140px;"></div>
+
+<div class="rail">
+  <span class="brand"><b>apprentice</b> · the manual</span>
+  <span class="nav">
+    <a href="#presence">basics</a>
+    <a href="#cando">what it does</a>
+    <a href="#keys">keys</a>
+    <a href="#summon">summon</a>
+    <a href="#mind">what it knows</a>
+    <a href="#rules">how it learns</a>
+    <a href="#learn">from a folder</a>
+    <a href="#correct">corrections</a>
+    <a href="#workflows">workflows</a>
+  </span>
+</div>
+
+<!-- ============ HERO ============ -->
+<section class="scene" id="top">
+  <div class="rv in">
+    <div class="num">Apprentice · how it works</div>
+    <h1>Everything it does.<br><span class="thin">Every key that</span> wakes it.</h1>
+    <p class="lead">Apprentice is an assistant that lives on your Mac. You <b>talk to it out loud</b>, it can <b>see and act on whatever's on your screen</b>, and it <b>learns how you like to work.</b> This page shows you all of it — and you can try things as you read: press the real keys, click into the panels. Nothing here is a screenshot; it all actually works.</p>
+    <div class="pillline">
+      <span class="pill">You <b>talk</b>, it listens</span>
+      <span class="pill">It <b>sees your screen</b></span>
+      <span class="pill">It <b>does tasks</b> for you</span>
+      <span class="pill">It <b>learns</b> how you work</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRESENCE ============ -->
+<section class="scene" id="presence" style="--kc:var(--indigo)">
+  <div class="rv">
+    <div class="kicker">01 · the basics</div>
+    <h2>Talk to it like a person.</h2>
+    <p class="lead">There's no window to open and no chat box to find. You reach Apprentice by <b>holding a key and speaking</b> — in any app, anywhere on your Mac. Ask for something and it gets to work, usually while you carry on with whatever you were doing. It can even handle a few jobs at once in the background.</p>
+    <p class="cap">Two words you'll see throughout this guide: a job running in the background is called a <b>strand</b> — you can have several at once. And <b>Summon</b> is the single panel where you see and control everything (you pop it open with a keyboard shortcut). Both are explained just ahead.</p>
+  </div>
+</section>
+
+<!-- ============ WHAT IT CAN DO ============ -->
+<section class="scene" id="cando" style="--kc:var(--teal)">
+  <div class="rv">
+    <div class="kicker" style="--kc:var(--teal)">02 · what it can do</div>
+    <h2>Not sure what to ask? Start here.</h2>
+    <p class="lead">Apprentice isn't a chat box you copy answers out of — it can actually <b>do things on your Mac.</b> This is the range. Each line is a real thing you could just say out loud; whatever you're working in, there's probably a way to hand part of it over.</p>
+    <div class="stage">
+      <div class="cando" id="candoList"></div>
+      <p class="cap" style="margin-top:24px">However you'd say it to a person, you can say it to Apprentice. And when you're not sure, just ask it <span style="color:var(--ink)">“what can you do?”</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOTKEYS ============ -->
+<section class="scene" id="keys" style="--kc:var(--indigo)">
+  <div class="rv">
+    <div class="kicker">03 · the keyring</div>
+    <h2>Six keys do almost everything.</h2>
+    <p class="lead">Modifiers, the Mac way: <span class="lede-keys"><span class="lk">⌃</span></span> control · <span class="lede-keys"><span class="lk">⌥</span></span> option · <span class="lede-keys"><span class="lk">⌘</span></span> command. <b>Hold a real combo on your keyboard</b> and watch its line light up below.</p>
+
+    <div class="keyring" id="keyring"></div>
+
+    <div class="tryline"><span class="d"></span><span>Start with <b>⌃ + ⌥</b> — hold them together and the talk line should glow.</span></div>
+  </div>
+</section>
+
+<!-- ============ SUMMON ============ -->
+<section class="scene" id="summon" style="--kc:var(--indigo)">
+  <div class="rv">
+    <div class="kicker">04 · the main panel · ⌘⌥S</div>
+    <h2>One panel for everything.</h2>
+    <p class="lead">Press <b>⌘⌥S</b> and a panel slides up from the bottom of the screen. This is <b>Summon</b> — your home base. There's a box at the bottom you can type or talk into, and whatever you ask for appears above it. No menus to dig through; you just say where you want to go. It opens on your running jobs, and from there you can open any one of them, revisit rested ones (<b>embers</b>), change settings, or see which apps it's connected to. <b>It's live below</b> — type in the box, or click the words under it.</p>
+    <div class="stage">
+      <div class="frame summon" id="summonFrame">
+        <div class="s-doc"><div class="ln l"></div><div class="ln m"></div><div class="ln s"></div><div class="ln l"></div><div class="ln m"></div></div>
+        <div class="s-hue" style="width:88px;height:88px;background:var(--indigo);left:120px;bottom:120px;animation:drift 8s ease-in-out infinite;"></div>
+        <div class="s-hue" style="width:80px;height:80px;background:var(--red);right:140px;top:90px;animation:drift 7s ease-in-out infinite reverse;"></div>
+        <div class="s-hue" style="width:66px;height:66px;background:var(--amber);right:220px;bottom:90px;animation:needb 2.4s ease-in-out infinite;opacity:.5;"></div>
+        <div class="cluster">
+          <div class="clusterglow"></div>
+          <div class="surf"><div class="surfwrap" id="sWrap"></div></div>
+          <div class="beam"><span class="o"></span>
+            <input id="sBeam" autocomplete="off" spellcheck="false" placeholder="ask for something, or open a job…">
+            <span class="mode" id="sMode"></span></div>
+        </div>
+      </div>
+      <p class="cap">Click to look around: <span class="jw" data-walk="board" style="color:var(--dim)">your jobs</span> ·
+        <span class="jw" data-walk="strand" style="color:var(--dim)">open one</span> ·
+        <span class="jw" data-walk="embers" style="color:var(--dim)">embers</span> ·
+        <span class="jw" data-walk="tune" style="color:var(--dim)">settings</span> ·
+        <span class="jw" data-walk="tools" style="color:var(--dim)">connected apps</span>.
+        Each job is a <b>colored dot</b>: a dot that's gently glowing is working right now, and the <b>amber</b> one is waiting on an answer from you. Click a dot to open that job.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE MIND / INSPECTOR ============ -->
+<section class="scene" id="mind" style="--kc:var(--indigo)">
+  <div class="rv">
+    <div class="kicker">05 · what it knows · ⌘⌥J</div>
+    <h2>See what it knows about you.</h2>
+    <p class="lead">Everything Apprentice picks up lives in one window, the <b>Inspector</b>. <b>Rules</b> are the habits it's learned — how you write, format, and name things — and the brighter a rule looks, the surer it is. <b>Memory</b> is facts it holds about you, your people, and your projects. <b>Turns</b> is a log of everything you've asked and how it handled it. <b>Noticed</b> is its own daily self-review — what it'd fix about itself. And it keeps your saved <b>workflows</b> plus a live <b>usage</b> meter for cost and speed. Click any tab — it's the real window.</p>
+    <div class="stage">
+      <div class="frame insp" id="inspFrame">
+        <div class="tbar">
+          <span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+          <span class="wt"><b>apprentice</b> · the mind</span>
+          <span class="itabs">
+            <span class="itab on" data-it="rules">rules</span>
+            <span class="itab" data-it="memory">memory</span>
+            <span class="itab" data-it="turns">turns</span>
+            <span class="itab" data-it="noticed">noticed</span>
+            <span class="itab" data-it="workflows">workflows</span>
+            <span class="itab" data-it="usage">usage</span>
+          </span>
+        </div>
+        <div class="ipanel on" data-ip="rules">
+          <div class="rtools">
+            <span class="filters" id="iDom">
+              <span class="fw on" data-d="all">all</span>
+              <span class="fw" data-d="writing">writing</span>
+              <span class="fw" data-d="email">email</span>
+              <span class="fw" data-d="files">files</span>
+              <span class="fw" data-d="sheets">sheets</span>
+            </span>
+            <span class="fw" id="iTaught">taught by me</span>
+            <span class="isearch"><span class="o"></span><input id="iSearch" placeholder="search rules"></span>
+          </div>
+          <div class="rbody"><div class="rlist" id="iList"></div><div class="rdet" id="iDetail"><div class="iempty">select a rule</div></div></div>
+        </div>
+        <div class="ipanel" data-ip="memory"><div class="mbody"><div class="mcol" id="iMem"></div></div></div>
+        <div class="ipanel" data-ip="turns"><div class="rbody"><div class="rlist" id="iTlist"></div><div class="rdet" id="iTdet"><div class="iempty">select a turn</div></div></div></div>
+        <div class="ipanel" data-ip="noticed"><div class="mbody"><div class="mcol" id="iNoticed"></div></div></div>
+        <div class="ipanel" data-ip="workflows"><div class="mbody" id="iWf"></div></div>
+        <div class="ipanel" data-ip="usage"><div class="mbody"><div class="mcol" id="iUsage"></div></div></div>
+      </div>
+      <p class="cap">A rule with a <b>line through it</b> has been retired — Apprentice keeps it on record but no longer uses it, because you later taught it something different. How all of this gets learned is the next few sections.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RULES CAPTURE ============ -->
+<section class="scene" id="rules" style="--kc:var(--teal)">
+  <div class="rv">
+    <div class="kicker" style="--kc:var(--teal)">06 · how a rule is born</div>
+    <h2>It watches, then it's sure.</h2>
+    <p class="lead">Apprentice doesn't come pre-loaded with your preferences — it <b>notices</b> them. The first time it spots a pattern in your work, it writes down a faint, unsure rule. When it sees the same thing again — another file, another day — that rule gets more certain (and in the Inspector, brighter). Every rule remembers where it came from: <i>something it noticed in your work</i>, <i>something you told it directly</i>, or <i>a starting habit it came with</i>.</p>
+    <div class="stage">
+      <div class="demo" id="capDemo">
+        <div class="dbar"><span class="t">a rule forming · “sign off with just my first name”</span><span class="runbtn" id="capRun">see it again →</span></div>
+        <div class="dbody">
+          <div class="capr" id="capRow">
+            <span class="ci"></span>
+            <span class="ctxt">Sign off emails with just your first name — no “Best regards”.</span>
+            <span class="cmeta" id="capMeta">seen once · still forming</span>
+          </div>
+          <p class="cap" style="margin-top:24px;max-width:60ch">Press <b>see it again</b> to watch the same pattern recur. Confidence climbs from <i>forming</i> → <i>medium</i> → <i>high</i>, and the rule lifts out of the dark. Nothing is decided on a single sighting.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LEARN FROM A FOLDER ============ -->
+<section class="scene" id="learn" style="--kc:var(--teal)">
+  <div class="rv">
+    <div class="kicker" style="--kc:var(--teal)">07 · learn from your work</div>
+    <h2>Point it at your past work.</h2>
+    <p class="lead">You don't have to wait for it to learn you one request at a time. Say <b>“learn how I write from my sent emails”</b> (or point it at any folder of your files) and it reads through them in four steps, then saves what it found as new rules. You'll see the progress as it goes, and you can review everything it picked up.</p>
+    <div class="stage">
+      <div class="demo" id="learnDemo">
+        <div class="dbar"><span class="t">you said: “learn how I write from my sent emails”</span><span class="runbtn" id="learnRun">run the pass →</span></div>
+        <div class="dbody">
+          <div class="folderline">reading <b>~/Mail/Sent</b> — 40 emails</div>
+          <div class="pipe" id="pipe">
+            <div class="pstep" data-i="0"><div class="pn">inspect</div><div class="pd">open each file, read its real structure</div></div>
+            <div class="pstep" data-i="1"><div class="pn">extract</div><div class="pd">a fast model proposes candidate rules</div></div>
+            <div class="pstep" data-i="2"><div class="pn">dedupe</div><div class="pd">merge against what it already knows</div></div>
+            <div class="pstep" data-i="3"><div class="pn">write</div><div class="pd">save into your rules, with confidence</div></div>
+          </div>
+          <div class="learned" id="learned">
+            <div class="lrule" data-i="0"><span class="d"></span>Open with one warm line — skip “I hope this finds you well.”</div>
+            <div class="lrule" data-i="1"><span class="d"></span>Keep most replies to two or three sentences.</div>
+            <div class="lrule" data-i="2"><span class="d"></span>Sign off with just your first name.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LIVE CORRECTIONS ============ -->
+<section class="scene" id="correct" style="--kc:var(--amber)">
+  <div class="rv">
+    <div class="kicker" style="--kc:var(--amber)">08 · correct it once</div>
+    <h2>Say it once. It sticks.</h2>
+    <p class="lead">When you correct it mid-work — out loud or typed — it writes that down <b>immediately</b> as a rule marked <i>you taught this</i>, ranked above anything it merely inferred. If it held an older, conflicting rule, that one is <b>retired</b> — struck through in the mind, kept on record so you can always see what changed.</p>
+    <div class="stage">
+      <div class="demo" id="corrDemo">
+        <div class="dbar"><span class="t">a correction, the moment you make it</span><span class="runbtn" id="corrRun">make the correction →</span></div>
+        <div class="dbody">
+          <div class="ce">you: <span class="you">“no — don't open with ‘I hope you're well.’ just get to the point.”</span></div>
+          <div class="cflow">
+            <div class="ccol">
+              <div class="h">the old rule</div>
+              <div class="cold" id="cOld">Open emails with a friendly “I hope you're well.”</div>
+              <div class="cnote" id="cNote"></div>
+            </div>
+            <div class="ccol">
+              <div class="h">what it keeps now</div>
+              <div class="cnew" id="cNew">Skip the pleasantries — open with the actual point.<span class="tag">you taught this</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WORKFLOWS ============ -->
+<section class="scene" id="workflows" style="--kc:var(--lilac)">
+  <div class="rv">
+    <div class="kicker" style="--kc:var(--lilac)">09 · workflows</div>
+    <h2>It keeps the recipe — <span class="thin">when you ask.</span></h2>
+    <p class="lead">Some jobs take several steps to work out. When Apprentice finishes one, it can save the whole thing as a small <b>program it can run again</b> — but only if you want it to. It never stockpiles these on its own: it <b>offers to save</b>, or saves when you tell it to. After that, asking for the same thing just <b>runs the saved recipe</b> instead of working it out again. They all show up in the Inspector's <b>workflows</b> tab — with a name, when to use it, and when it last worked.</p>
+    <div class="stage">
+      <div class="demo" id="wfDemo" style="--kc:var(--lilac)">
+        <div class="dbar"><span class="t" id="wfBarT">you just had it process your saved reels — chaining four steps for the first time</span></div>
+        <div class="dbody">
+
+          <div class="wfoffer" id="wfOffer">
+            <div><span class="who">Apprentice</span> — done, the new saves are fetched, transcribed and harvested. <span class="ask">want me to save this chain so I can run it again?</span></div>
+            <div class="wfbtns">
+              <span class="wfbtn yes" id="wfYes">yes, save it</span>
+              <span class="wfbtn no" id="wfNo">not now</span>
+            </div>
+          </div>
+
+          <div class="wfsaved" id="wfSaved">
+            <div class="wfcard">
+              <div class="cardhd"><div class="nm">reel-intel-chain</div><span class="runbtn sm" id="wfRun">run it again →</span></div>
+              <div class="meta">when to use: process my saved reels · last worked: today</div>
+              <div class="steps" id="wfSteps">
+                <div class="step" data-i="0"><span class="sd"></span>fetch the reels saved to your Instagram collection (+ captions, music, views)</div>
+                <div class="step" data-i="1"><span class="sd"></span>transcribe each one (Hindi + English)</div>
+                <div class="step" data-i="2"><span class="sd"></span>pull out every tool, repo and library mentioned</div>
+                <div class="step" data-i="3"><span class="sd"></span>find those repos on GitHub and grab their READMEs</div>
+              </div>
+            </div>
+            <div class="wfnote" id="wfNote">saved — it's in the Inspector's <b>workflows</b> tab now. <span class="wfreset" id="wfReset">↺ start over</span></div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="wftrust">
+        <div class="wttrow"><span class="wd"></span><span>Ask for something <b>close but not identical</b> and it adapts the saved recipe instead of rebuilding from scratch.</span></div>
+        <div class="wttrow"><span class="wd"></span><span>Each recipe is <b>self-contained</b>, so it keeps working months later — and if one ever breaks, Apprentice <b>fixes it</b> the next time it runs.</span></div>
+        <div class="wttrow"><span class="wd"></span><span>Before a recipe deletes, overwrites, or sends anything, it <b>checks with you first.</b></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLOSE ============ -->
+<section class="scene" style="justify-content:center;">
+  <div class="rv">
+    <div class="num">the short version</div>
+    <p class="end">You <b>hold a key and speak.</b> It gets to work, learns every time you correct it, and remembers how next time.<br><br>Everything else is just <b>where to look.</b></p>
+    <p class="cap" style="margin-top:26px;max-width:60ch">Two windows do most of it — <b>Summon</b> (⌘⌥S) to run things, the <b>Inspector</b> (⌘⌥J) to see what it knows. A handful of keys for the rest.</p>
+  </div>
+</section>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+
+/* ===== reveal + rail active + ambient drift ===== */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in');}),{threshold:.14});
+$$('.rv').forEach(el=>io.observe(el));
+const navmap={}; $$('.rail a').forEach(a=>navmap[a.getAttribute('href').slice(1)]=a);
+const secIO=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){$$('.rail a').forEach(a=>a.classList.remove('on')); const m=navmap[e.target.id]; if(m)m.classList.add('on');}}),{threshold:.45});
+$$('section[id]').forEach(s=>secIO.observe(s));
+let t=0; (function drift(){t+=0.004; $('#auraA').style.transform=`translate(${Math.sin(t)*40}px,${Math.cos(t*.8)*30}px)`;
+  $('#auraB').style.transform=`translate(${Math.cos(t*.7)*40}px,${Math.sin(t)*30}px)`; requestAnimationFrame(drift);})();
+
+/* ===================== WHAT IT CAN DO ===================== */
+const CANDO=[
+  {c:'var(--indigo)',t:'Run your apps',ex:['open the tabs I need for my 10am','paste this into the reply and send it','turn on Do Not Disturb till 3']},
+  {c:'var(--teal)',t:'Work in spreadsheets',ex:['clean up this sheet and total column C','build me a simple budget tracker','chart the last six months']},
+  {c:'var(--amber)',t:'Write & reply',ex:['reply to Sam in my voice','draft a thank-you note to the team','tighten this paragraph']},
+  {c:'var(--lilac)',t:'Organize your files',ex:['sort my Downloads into project folders','rename these photos by date','find that PDF from last week']},
+  {c:'var(--violet)',t:'Look things up',ex:['pull the key points from this article','compare three flights to Lisbon','what changed in this doc?']},
+  {c:'var(--red)',t:'Edit a video',tag:'experimental',ex:['trim the dead air and add captions','cut this down to 60 seconds']},
+];
+const quote=p=>`<span class="q">“</span>${p}<span class="q">”</span>`;
+const cdList=$('#candoList');
+cdList.innerHTML=CANDO.map((c,i)=>`<div class="cdrow" style="--cc:${c.c}"><span class="cddot" style="animation-delay:${(i*0.5).toFixed(1)}s"></span><span class="cdtitle">${c.t}${c.tag?`<span class="cdtag">${c.tag}</span>`:''}</span><span class="cdex" id="cdex${i}">${quote(c.ex[0])}</span></div>`).join('');
+CANDO.forEach((c,i)=>{ if(c.ex.length<2)return; const el=$('#cdex'+i); let k=0;
+  setInterval(()=>{ k=(k+1)%c.ex.length; el.style.opacity=0; setTimeout(()=>{ el.innerHTML=quote(c.ex[k]); el.style.opacity=1; },300); }, 4200+i*470);
+});
+
+/* ===================== HOTKEYS ===================== */
+const KEYS=[
+  {keys:['⌃','⌥'],hold:true,c:'var(--indigo)',t:'Talk to it',
+   d:'Hold control + option, say what you want, then let go. This is the main way you use Apprentice — and it works in any app.',
+   m:e=>e.ctrlKey&&e.altKey&&!e.metaKey&&!e.shiftKey&&!alpha(e)},
+  {keys:['⌘','⌥','S'],c:'var(--indigo)',t:'Open the main panel (Summon)',
+   d:'Pops up one panel with everything in it: the jobs you have running, your settings, and the apps it’s connected to.',
+   m:e=>e.metaKey&&e.altKey&&alpha(e)==='s'},
+  {keys:['⌘','⌥','J'],c:'var(--teal)',t:'See what it’s learned (the Inspector)',
+   d:'Opens a window showing the habits it’s picked up about you, what it remembers, and a log of your past requests.',
+   m:e=>e.metaKey&&e.altKey&&alpha(e)==='j'},
+  {keys:['⌃','⌘','N'],c:'var(--red)',t:'Start another job in the background',
+   d:'Kicks off a second task that runs on its own while you keep working.',
+   m:e=>e.ctrlKey&&e.metaKey&&alpha(e)==='n'},
+  {keys:['⌃','⌘','→'],c:'var(--red)',t:'Switch to the next job',
+   d:'Move your voice and cursor over to the next background job you have running.',
+   m:e=>e.ctrlKey&&e.metaKey&&e.key==='ArrowRight'},
+  {keys:['⌃','⌘','←'],c:'var(--red)',t:'Switch to the previous job',
+   d:'The same, the other direction.',
+   m:e=>e.ctrlKey&&e.metaKey&&e.key==='ArrowLeft'},
+  {keys:['🌐 fn'],hold:true,c:'var(--amber)',t:'Dictate into anything',
+   d:'Hold the globe / fn key in any app, speak, and let go — your words appear as clean text right where your cursor is. This is just dictation. One-time setup: in macOS Keyboard settings set “Press 🌐 to → Do Nothing”.',
+   m:()=>false},
+  {keys:['⌘','⌥','V'],c:'var(--lilac)',t:'Video editor',
+   d:'Opens a timeline for trimming clips and adding automatic captions. Still experimental.',
+   m:e=>e.metaKey&&e.altKey&&alpha(e)==='v'},
+  {gh:'power & demos',keys:['⌃','⌘','R'],c:'var(--violet)',t:'Record your screen',
+   d:'Start or stop a screen recording for a clip. Esc won’t stop it — so a stray Esc never ruins your take.',
+   m:e=>e.ctrlKey&&e.metaKey&&alpha(e)==='r'},
+  {keys:['⌃','⌘','V'],c:'var(--violet)',t:'Pin a video to your cursor',
+   d:'Attaches a small playing video that follows your cursor — handy for demos and walkthroughs.',
+   m:e=>e.ctrlKey&&e.metaKey&&alpha(e)==='v'},
+];
+function alpha(e){return (e.key&&e.key.length===1)?e.key.toLowerCase():(e.code&&e.code.startsWith('Key')?e.code.slice(3).toLowerCase():'');}
+const ring=$('#keyring');
+ring.innerHTML=KEYS.map((k,i)=>{
+  const combo=k.keys.map((kk,j)=>`${j?'<span class="kplus">+</span>':''}<span class="kk">${kk}</span>`).join('')+(k.hold?'<span class="khold">hold</span>':'');
+  return `${k.gh?`<div class="kgroup">${k.gh}</div>`:''}<div class="krow" id="kr${i}" style="--kc:${k.c}">
+    <div class="kcombo">${combo}</div>
+    <div class="ktext"><div class="ktitle">${k.t}</div><div class="kdesc">${k.d}</div></div>
+    <div class="korb"></div></div>`;
+}).join('');
+let krTimer=null;
+function litRow(i){ const r=$('#kr'+i); if(!r)return; $$('.krow.lit').forEach(x=>{if(x!==r)x.classList.remove('lit');}); r.classList.add('lit');
+  clearTimeout(krTimer); krTimer=setTimeout(()=>r.classList.remove('lit'),1600); }
+$$('.krow').forEach((r,i)=>r.addEventListener('mouseenter',()=>litRow(i)));
+window.addEventListener('keydown',e=>{
+  const i=KEYS.findIndex(k=>{try{return k.m(e);}catch(_){return false;}});
+  if(i>=0){ if((e.metaKey||e.ctrlKey)&&alpha(e)) e.preventDefault(); litRow(i); }
+});
+
+/* ===================== SUMMON (light language) ===================== */
+const AGENTS=[
+  {id:'trip',nm:'Lisbon trip',c:'var(--red)',ch:'#ff6b6b',st:'comparing flights & places to stay',active:true,need:false,focused:false},
+  {id:'email',nm:'Reply to Sam',c:'var(--teal)',ch:'#34e3c4',st:'rested · spoke a moment ago',active:false,need:false,focused:true},
+  {id:'slides',nm:'Monday slides',c:'var(--amber)',ch:'#ffce5c',st:'waiting for you',active:false,need:true,focused:false},
+];
+const sWrap=$('#sWrap'), sBeam=$('#sBeam'), sMode=$('#sMode'), cluster=$('#summonFrame .cluster');
+function beam(c,m){ cluster.style.setProperty('--beam',c); sMode.textContent=m||''; }
+function hueField(a){let size=24,opac=.5,anim='';if(a.focused){size=32;opac=.9;}if(a.active){anim='liveb 2.4s ease-in-out infinite';opac=.85;}if(a.need){anim='needb 2s ease-in-out infinite';}
+  return `<div class="ah" style="width:${size}px;height:${size}px;background:${a.c};opacity:${opac};${anim?'animation:'+anim:''}"></div>`;}
+function board(q){
+  q=(q||'').toLowerCase();
+  const ags=AGENTS.filter(a=>!q||a.nm.toLowerCase().includes(q)||a.st.toLowerCase().includes(q));
+  let h='<div class="whead">your jobs</div>';
+  ags.forEach(a=>{ const ns=a.focused?'color:var(--ink);font-weight:500':(a.active?'color:var(--ink)':'color:var(--dim)');
+    h+=`<div class="arow" data-agent="${a.id}">${hueField(a)}<div style="flex:1;min-width:0"><div class="anm" style="${ns}">${a.nm}</div><div class="ast ${a.need?'need':''}">${a.st}</div>
+      <div class="verbs"><span class="vw" data-open="${a.id}">open</span><span class="vw">restart</span><span class="vw">archive</span><span class="vw danger">dismiss</span></div></div></div>`;});
+  h+=`<div class="beginrow" id="beginrow">start a new job…</div>`;
+  h+=`<div class="jumps"><span class="jw" data-jump="embers">embers</span><span class="jw" data-jump="tune">settings</span><span class="jw" data-jump="tools">connected apps</span></div>`;
+  beam('var(--indigo)',''); sWrap.innerHTML=h;
+}
+function strand(a){ beam(a.c,a.nm.toLowerCase());
+  sWrap.innerHTML=`<div class="back" id="backrow">‹ your jobs</div><div class="strand"><div class="snm" style="color:${a.ch}">${a.nm}</div>
+    <div class="past">found 6 nonstop flights under your budget</div><div class="past">shortlisted 3 places to stay near the old town</div>
+    <div class="now">two of them cost about the same — closer to the beach, or closer to the center?</div>
+    <div class="v2"><span class="vw" style="color:var(--dim)">reply</span><span class="vw danger">stop</span></div></div>`;
+}
+function embers(){
+  const E=[['Q2 review deck','14 turns','3 days ago'],['Refactor notes','6 turns','last week']];
+  let h='<div class="whead">embers · rested jobs — reignite to pick one back up</div>';
+  E.forEach(e=>{ h+=`<div class="arow"><div class="ah" style="width:20px;height:20px;background:#3a3b44;opacity:.5;filter:blur(5px);margin-top:3px"></div>
+    <div style="flex:1;min-width:0"><div class="anm" style="color:var(--dim)">${e[0]}</div><div class="ast">${e[1]} · ${e[2]}</div>
+    <div class="verbs"><span class="vw">reignite</span><span class="vw danger">delete</span></div></div></div>`;});
+  beam('var(--lilac)','embers'); sWrap.innerHTML=h;
+}
+function tune(){
+  let h='<div class="whead">tune</div><div class="tgroup">';
+  h+=`<div class="tgl">mind</div><div class="trw"><span class="lbl">thinks as deep as</span><div class="depth" id="dep"><div class="node" id="depN"></div></div><span class="depthword" id="depW">sonnet</span></div>`;
+  h+=`<div class="tgl">presence</div><div class="trw"><span class="lbl">its colour</span><div class="spectrum"><span class="sw on" style="background:var(--indigo)"></span><span class="sw" style="background:var(--red)"></span><span class="sw" style="background:var(--teal)"></span><span class="sw" style="background:var(--amber)"></span><span class="sw" style="background:var(--lilac)"></span></div></div>`;
+  h+=`<div class="tgl">voice</div><div class="trw"><span class="lbl">listens while you hold</span><span class="val">⌃⌥</span><span class="stateword" id="ptt" style="margin-left:6px">on</span></div><div class="trw"><span class="lbl">speaks back</span><span class="stateword" id="spk">on</span></div></div>`;
+  beam('var(--amber)','tune'); sWrap.innerHTML=h;
+  const dep=$('#dep'),dn=$('#depN'),dw=$('#depW'),tiers=[['haiku',.16],['sonnet',.6],['opus',1]];
+  dep.onclick=e=>{const r=dep.getBoundingClientRect();let p=(e.clientX-r.left)/r.width,best=tiers[0],bd=9;tiers.forEach(t=>{const d=Math.abs(t[1]-p);if(d<bd){bd=d;best=t;}});dn.style.left=(best[1]*100)+'%';dw.textContent=best[0];};
+  ['ptt','spk'].forEach(id=>{const el=$('#'+id);el.onclick=()=>{const on=el.textContent==='on';el.textContent=on?'off':'on';el.classList.toggle('off',on);};});
+  sWrap.querySelectorAll('.sw').forEach(s=>s.onclick=()=>{sWrap.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));s.classList.add('on');});
+}
+function tools(){
+  const T=[['Notion',1,'pages and notes'],['Gmail',1,'your inbox'],['Drive',1,'your files'],['Calendar',0,''],['Slack',0,''],['Photos',0,'']];
+  let h='<div class="whead">tools · what it can reach</div>';
+  T.forEach(t=>h+=`<div class="toolrow ${t[1]?'conn':'dim'}"><span class="tl"></span><span class="tn" style="color:${t[1]?'var(--ink)':'var(--dim)'}">${t[0]}</span><span class="th">${t[1]?t[2]:'connect'}</span></div>`);
+  beam('var(--lilac)','tools'); sWrap.innerHTML=h;
+}
+function route(raw){ const q=raw.trim().toLowerCase();
+  if(!q){board();return;}
+  const a=AGENTS.find(x=>q.includes(x.nm.toLowerCase().split(' ')[0]));
+  if(a){strand(a);return;}
+  if(/(ember|rested|archive|reignite|cooled)/.test(q)){embers();return;}
+  if(/(deep|model|haiku|opus|sonnet|think|colou?r|hue|voice|hold|speak|tune|setting)/.test(q)){tune();return;}
+  if(/(connect|notion|gmail|slack|drive|calendar|photos|tool|source|reach|app)/.test(q)){tools();return;}
+  beam('var(--indigo)','ask'); sWrap.innerHTML=`<div class="empty">press return to ask · “${raw}”</div>`;
+}
+sBeam.addEventListener('input',()=>route(sBeam.value));
+sWrap.addEventListener('click',e=>{
+  const open=e.target.closest('[data-open]'),row=e.target.closest('.arow'),begin=e.target.closest('#beginrow'),
+        jump=e.target.closest('.jw'),back=e.target.closest('#backrow');
+  if(open){const a=AGENTS.find(x=>x.id===open.dataset.open);if(a)strand(a);return;}
+  if(back){sBeam.value='';board();return;}
+  if(begin){beam('var(--indigo)','');sWrap.innerHTML='<div class="empty">type what you want done in the box below — it starts as a new job.</div>';sBeam.focus();return;}
+  if(row&&row.dataset.agent){const a=AGENTS.find(x=>x.id===row.dataset.agent);if(a){sBeam.value=a.nm;strand(a);}return;}
+  if(jump){const v=jump.dataset.jump;if(v==='embers')embers();else if(v==='tune')tune();else if(v==='tools')tools();return;}
+});
+$$('.jw[data-walk]').forEach(b=>b.onclick=()=>{const v=b.dataset.walk;sBeam.value='';
+  if(v==='board')board();else if(v==='strand')strand(AGENTS[0]);else if(v==='embers')embers();else if(v==='tune')tune();else if(v==='tools')tools();
+  $('#summonFrame').scrollIntoView({block:'center',behavior:'smooth'});});
+board();
+
+/* ===================== THE MIND (inspector) ===================== */
+const IRULES=[
+ {id:'r21',text:'Warm, direct openers — land in one line, no preamble.',dom:'writing',facet:'universal',cat:'voice-tone',conf:'high',obs:7,ev:'“Quick one —”  (not “Dear team, I wanted to reach out…”)',src:'bootstrap',learned:'22 May',applied:201,corrected:1,success:99},
+ {id:'r33',text:'No em-dashes — use a comma or a full stop instead.',dom:'writing',facet:'universal',cat:'punctuation',conf:'high',obs:5,ev:'the plan, redone, is faster',src:'live',learned:'23 May',applied:172,corrected:0,success:100},
+ {id:'r61',text:'Default to 1–2 sentence replies unless asked to expand.',dom:'writing',facet:'universal',cat:'voice-tone',conf:'medium',obs:4,ev:'—',src:'live',learned:'24 May',applied:120,corrected:6,success:95},
+ {id:'r182',text:'Skip email pleasantries — open with the actual point.',dom:'email',facet:'universal',cat:'voice-tone',conf:'high',obs:1,ev:'you corrected this on 30 May',src:'live',learned:'30 May',applied:30,corrected:0,success:100},
+ {id:'r08',text:'Name saved files date-first, e.g. 2026-06-17-topic.',dom:'files',facet:'universal',cat:'structure',conf:'high',obs:4,ev:'~/Downloads → ~/Documents',src:'bootstrap',learned:'21 May',applied:214,corrected:3,success:99},
+ {id:'r42',text:'Keep email subject lines under six words.',dom:'email',facet:'universal',cat:'structure',conf:'medium',obs:3,ev:'“Monday plan” (not “Following up about Monday…”)',src:'bootstrap',learned:'21 May',applied:78,corrected:2,success:97},
+ {id:'r115',text:'Open emails with a friendly “I hope you’re well.”',dom:'email',facet:'universal',cat:'voice-tone',conf:'high',obs:3,ev:'—',src:'bootstrap',learned:'21 May',applied:60,corrected:5,success:92,retiredBy:'r182',retiredAt:'30 May'},
+ {id:'r50',text:'Lead a status update with the headline, then the details.',dom:'writing',facet:'updates',cat:'structure',conf:'medium',obs:3,ev:'—',src:'bootstrap',learned:'22 May',applied:41,corrected:1,success:98},
+ {id:'r70',text:'In spreadsheets, freeze the header row and keep thousands separators on number columns.',dom:'sheets',facet:'universal',cat:'formatting',conf:'high',obs:6,ev:'View › Freeze Panes',src:'bootstrap',learned:'21 May',applied:88,corrected:0,success:100},
+];
+const confLabel={high:'high confidence',medium:'medium confidence',low:'low confidence'};
+const confLum={high:.97,medium:.74,low:.52};
+const srcLabel={bootstrap:'learned from your work',live:'you taught this',skill:'shipped'};
+let iDomV='all',iTaughtV=false,iQ='',iSel=null;
+const iList=$('#iList'),iDetail=$('#iDetail');
+function renderIRules(){
+  let rows=IRULES.filter(r=>(iDomV==='all'||r.dom===iDomV)&&(!iTaughtV||r.src==='live')&&(!iQ||r.text.toLowerCase().includes(iQ)));
+  const g={}; rows.forEach(r=>{(g[r.dom]||=[]).push(r);});
+  iList.innerHTML=Object.keys(g).sort().map(d=>`<div class="ghead">${d}</div>`+g[d].map(r=>`
+    <div class="rrow ${iSel===r.id?'sel':''} ${r.retiredBy?'retired':''}" data-id="${r.id}">
+      <div class="rtext" style="color:rgba(243,241,234,${r.retiredBy?.5:confLum[r.conf]})">${r.text}</div>
+      <div class="rmeta">${r.facet!=='universal'?r.facet+' · ':''}${r.src==='live'?'<span class="taught">taught by you</span>':'learned'}${r.retiredBy?' · retired':''}</div>
+    </div>`).join('')).join('')||'<div class="iempty" style="height:auto;padding:24px">no rules match</div>';
+}
+function renderIDetail(r){
+  iDetail.innerHTML=`<div class="dc">${r.text}</div>
+    ${r.ev!=='—'?`<div class="dev">${r.ev}</div>`:''}
+    ${r.retiredBy?`<div class="retbar">retired — replaced by ${r.retiredBy} on ${r.retiredAt}. kept on record; no longer used.</div>`:''}
+    <div class="dsect">what it is</div>
+    <div class="dkv"><span class="k">type</span><span class="v">${r.cat}</span>
+      <span class="k">applies to</span><span class="v">${r.dom}${r.facet!=='universal'?` <span class="t">· ${r.facet}</span>`:` <span class="t">· everywhere</span>`}</span>
+      <span class="k">confidence</span><span class="v">${confLabel[r.conf]} <span class="t">· seen in ${r.obs} ${r.obs===1?'place':'files'}</span></span>
+      <span class="k">learned</span><span class="v">${srcLabel[r.src]} <span class="t">· ${r.learned}</span></span></div>
+    <div class="dsect">how it's doing</div>
+    <div class="behave"><div class="bn"><b>${r.applied}</b>times applied</div><div class="bn"><b>${r.corrected}</b>you corrected it</div><div class="bn"><b class="pos">${r.success}%</b>success rate</div></div>`;
+}
+iList.addEventListener('click',e=>{const row=e.target.closest('.rrow');if(row){iSel=row.dataset.id;renderIDetail(IRULES.find(r=>r.id===iSel));renderIRules();}});
+$('#iDom').addEventListener('click',e=>{const f=e.target.closest('.fw');if(f){$$('#iDom .fw').forEach(x=>x.classList.remove('on'));f.classList.add('on');iDomV=f.dataset.d;renderIRules();}});
+$('#iTaught').addEventListener('click',e=>{iTaughtV=!iTaughtV;e.target.classList.toggle('on',iTaughtV);renderIRules();});
+$('#iSearch').addEventListener('input',e=>{iQ=e.target.value.trim().toLowerCase();renderIRules();});
+renderIRules();
+
+const IMEM=[
+ {g:'about you',items:[
+   {t:'Prefers short replies — one or two sentences unless asked to go deeper.',meta:'24 May',you:true},
+   {t:'Likes a warm, direct tone — no corporate filler.',meta:'observed · 21 May'},
+   {t:'Lives mostly in email, notes, and the browser.',meta:'observed · 22 May'}]},
+ {g:'people',items:[{t:'Naina — coffee invite in progress.',meta:'mentioned · 2 days ago'},{t:'Sam — waiting on the Monday slides.',meta:'mentioned · last week'}]},
+ {g:'projects',items:[{t:'Lisbon trip — planning in progress.',meta:'updated · 4h ago'}]},
+ {g:'changed its mind',items:[{t:'Used to open emails with pleasantries; now gets straight to the point (you corrected it).',meta:'updated 30 May · was 21 May'}]},
+];
+$('#iMem').innerHTML=IMEM.map(s=>`<div class="ghead">${s.g}</div>`+s.items.map(i=>`<div class="mfact"><span class="mdot"></span><div><div class="mtext">${i.t}</div><div class="mmeta">${i.you?'<span class="you">you told me</span> · ':''}${i.meta}</div></div></div>`).join('')).join('');
+
+const ITURNS=[
+ {q:'write my weekly update email',total:'7.4s',applied:8,violated:1,tags:['email','email:update'],cand:42,loaded:12,cut:0.62,top:0.90,
+  rules:[['applied','r21',0.90],['applied','r182',0.84],['applied','r61',0.79],['violated','r42',0.66]]},
+ {q:'tidy up my Downloads folder',total:'4.1s',applied:5,violated:0,tags:['files','files:organizing'],cand:28,loaded:9,cut:0.6,top:0.88,
+  rules:[['applied','r08',0.88],['neutral','r61',0.66]]},
+];
+const iTlist=$('#iTlist'),iTdet=$('#iTdet');let tSel=null;
+function renderITurns(){iTlist.innerHTML='<div class="ghead">recent turns</div>'+ITURNS.map((t,i)=>`<div class="rrow ${tSel===i?'sel':''}" data-i="${i}"><div class="rtext">${t.q}</div><div class="rmeta">${t.total} · ${t.applied} applied${t.violated?` · <span style="color:var(--red)">${t.violated} violated</span>`:''}</div></div>`).join('');}
+function renderITurnDet(t){iTdet.innerHTML=`<div class="dc" style="font-size:15px">${t.q}</div>
+  <div class="dsect">routed to</div><div style="font-size:12.5px;color:var(--dim)">${t.tags.map(x=>`<span style="background:rgba(var(--accent),.1);border:1px solid rgba(var(--accent),.2);border-radius:6px;padding:1px 8px;margin-right:5px">${x}</span>`).join('')}</div>
+  <div class="dsect">the rule budget</div><div style="font-size:12.5px;color:var(--faint);line-height:1.8">considered <b style="color:var(--dim)">${t.cand}</b> rules, loaded the top <b style="color:var(--dim)">${t.loaded}</b><br>score cut-off ${t.cut} · top was ${t.top}</div>
+  <div class="dsect">what loaded — and what happened</div>${t.rules.map(r=>`<div style="display:flex;gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line2)"><span style="font-size:9.5px;width:52px;text-transform:lowercase;color:${r[0]==='applied'?'rgb(var(--accent))':r[0]==='violated'?'var(--red)':'var(--faint)'}">${r[0]}</span><span style="font-size:12.5px;flex:1;color:var(--dim)">${(IRULES.find(x=>x.id===r[1])||{text:r[1]}).text}</span><span style="font-size:10.5px;color:var(--faint);font-family:ui-monospace,monospace">${r[2].toFixed(2)}</span></div>`).join('')}`;}
+iTlist.addEventListener('click',e=>{const row=e.target.closest('.rrow');if(row){tSel=+row.dataset.i;renderITurnDet(ITURNS[tSel]);renderITurns();}});
+
+const IWF=[
+ {nm:'reel-intel-chain',meta:'when to use: process my saved reels · last worked: 15 Jun',steps:'fetch saved IG reels → transcribe (Hindi + English) → pull out the tools & repos mentioned → grab their GitHub READMEs'},
+];
+$('#iWf').innerHTML='<div class="mcol">'+IWF.map(w=>`<div class="wfrow"><div class="wfn">${w.nm}</div><div class="wfs">${w.meta}</div><div class="wfsteps">${w.steps}</div></div>`).join('')+'</div>';
+
+/* noticed — daily self-review */
+const NPROP=[
+ {title:'I over-explain when you ask for something quick',seen:'seen 3× · since 12 Jun',facts:['3 “quick” asks ran long','you trimmed 2 of my replies'],prop:'Default harder to one or two sentences unless you ask me to expand.'},
+ {title:'I keep reaching for the wrong tool to move files',seen:'seen 2× · since 14 Jun',facts:['2 osascript errors on file moves'],prop:'Try the shell move first; fall back to AppleScript only if it fails.'},
+];
+const NFYI=[
+ {title:'Mornings are your heavy-task window',facts:['most multi-step jobs land 9–11am'],day:'15 Jun'},
+ {title:'You almost always want links, not attachments',facts:['noticed across 4 emails'],day:'14 Jun'},
+];
+$('#iNoticed').innerHTML=
+  '<div class="ghead">what i\'d fix about myself</div>'+
+  NPROP.map(p=>`<div class="ncard"><div class="nh"><span class="nd"></span><span class="nt">${p.title}</span><span class="ns">${p.seen}</span></div>
+    <div class="nfacts">${p.facts.map(f=>`<div class="nfact">${f}</div>`).join('')}</div>
+    <div class="nprop">${p.prop}</div></div>`).join('')+
+  '<div class="ghead">also noticed</div>'+
+  NFYI.map(f=>`<div class="nfyi"><span class="fd"></span><div><div class="ft">${f.title}</div><div class="fm">${(f.facts.concat([f.day])).join(' · ')}</div></div></div>`).join('');
+
+/* usage — cost / latency meter + the real fan-out catalog */
+const UWIN=[
+ {w:'session',c:'$0.42',t:'18 turns',k:'31.2k out · 0.6M in',m:'6.1s median'},
+ {w:'today',c:'$1.08',t:'46 turns',k:'82k out · 1.5M in',m:'5.4s median'},
+ {w:'7 days',c:'$6.73',t:'310 turns',k:'0.5M out · 9.8M in',m:'5.8s median'},
+];
+const UFAN=[
+ {l:'Main turn',model:'claude-sonnet-5',cad:'per-turn',skip:false,on:true,note:'the user-facing agent loop — dominant cost'},
+ {l:'Intent classify',model:'claude-haiku-4-5',cad:'per-turn',skip:true,on:true,note:'routing fallback; v5 uses local embeddings instead'},
+ {l:'Application detection',model:'claude-haiku-4-5',cad:'post-turn',skip:true,on:true,note:'rule-application verdicts — disabling also drops the quality signal'},
+ {l:'Noticed (daily)',model:'claude-sonnet-5',cad:'daily',skip:true,on:true,note:'end-of-day introspection synthesis'},
+ {l:'Episodic memory',model:'claude-haiku-4-5',cad:'session-end',skip:true,on:true,note:'fact extraction at session teardown'},
+];
+const URECENT=[
+ {t:'process my saved reels',o:'12.1k',c:'$0.088',s:'14.0s'},
+ {t:'write my weekly update email',o:'7.4k',c:'$0.041',s:'7.4s'},
+ {t:'tidy up my Downloads folder',o:'3.2k',c:'$0.019',s:'4.1s'},
+ {t:'reply to Sam',o:'2.1k',c:'$0.012',s:'3.0s'},
+];
+function fanRow(f){ return `<div class="ufrow"><span class="ufd ${f.on?'on':'off'}"></span><div style="flex:1;min-width:0">
+  <div class="ufh"><span class="ufl">${f.l}</span><span class="ufm">${f.model}</span>${f.skip?'<span class="ubadge">skippable</span>':''}<span class="ufc">${f.cad}</span></div>
+  <div class="ufn">${f.note}</div></div></div>`; }
+function renderUsage(){
+  $('#iUsage').innerHTML=
+    '<div class="ghead">usage · main turn</div>'+
+    '<div class="uwins">'+UWIN.map(w=>`<div class="uwin"><div class="uw">${w.w}</div><div class="uc">${w.c}</div><div class="ut">${w.t}</div><div class="uk">${w.k}</div><div class="um">${w.m}</div></div>`).join('')+'</div>'+
+    '<div class="unote">the main agent loop — the dominant cost. the aux fan-outs below aren\'t yet metered per call.</div>'+
+    '<div class="ghead">agent fan-outs · v5</div>'+
+    `<div class="ufrow"><span class="ufd ${ulOn?'on':'off'}"></span><div style="flex:1;min-width:0">
+      <div class="ufh"><span class="ufl">Rules loading</span><span class="ubadge">skippable</span><span class="ufc" style="display:flex;align-items:center;gap:8px">per-turn <span class="uswitch ${ulOn?'':'off'}" id="ulSwitch"><span class="kn"></span></span></span></div>
+      <div class="ufn">inject task-matched rules into context every turn — turn off to stop context bloat from mis-detection</div></div></div>`+
+    UFAN.map(fanRow).join('')+
+    '<div class="ghead">recent turns</div>'+
+    URECENT.map(t=>`<div class="urow"><span class="urt">${t.t}</span><span class="uro">${t.o}o</span><span class="urc">${t.c}</span><span class="urs">${t.s}</span></div>`).join('');
+  const sw=$('#ulSwitch'); if(sw) sw.onclick=()=>{ ulOn=!ulOn; renderUsage(); };
+}
+let ulOn=true; renderUsage();
+
+$$('.itab').forEach(tb=>tb.onclick=()=>{$$('.itab').forEach(x=>x.classList.remove('on'));tb.classList.add('on');
+  $$('.ipanel').forEach(p=>p.classList.toggle('on',p.dataset.ip===tb.dataset.it));
+  if(tb.dataset.it==='turns')renderITurns();});
+
+/* ===================== CAPTURE demo ===================== */
+let capN=0; const capRow=$('#capRow'),capMeta=$('#capMeta');
+$('#capRun').onclick=()=>{ capN=(capN+1)%3;
+  capRow.classList.remove('b1','b2');
+  if(capN>=1)capRow.classList.add('b1'); if(capN>=2)capRow.classList.add('b2');
+  capMeta.textContent=['seen once · still forming','seen in 3 files · medium','seen across your work · high confidence'][capN];
+  $('#capRun').textContent=capN<2?'see it again →':'↺ reset';
+};
+
+/* ===================== LEARN pipeline ===================== */
+let learnBusy=false;
+$('#learnRun').onclick=()=>{ if(learnBusy)return; learnBusy=true; const btn=$('#learnRun');btn.textContent='reading…';
+  const steps=$$('#pipe .pstep'),rules=$$('#learned .lrule');
+  steps.forEach(s=>s.classList.remove('on')); rules.forEach(r=>r.classList.remove('show'));
+  let i=0; const t=setInterval(()=>{ if(i>0)steps[i-1]&&steps[i-1].classList.remove('on'); if(i<steps.length){steps[i].classList.add('on');}
+    if(i===steps.length){clearInterval(t); steps.forEach(s=>s.classList.add('on'));
+      rules.forEach((r,j)=>setTimeout(()=>r.classList.add('show'),j*260));
+      setTimeout(()=>{btn.textContent='↺ run again';learnBusy=false;},rules.length*260+200);}
+    i++; },720);
+};
+
+/* ===================== CORRECT supersede ===================== */
+$('#corrRun').onclick=()=>{ $('#cOld').classList.add('retired'); $('#cNew').classList.add('show');
+  $('#cNote').textContent='retired — kept on record'; $('#corrRun').textContent='✓ done';
+  setTimeout(()=>{$('#cOld').classList.remove('retired');$('#cNew').classList.remove('show');$('#cNote').textContent='';$('#corrRun').textContent='make the correction →';},3200);
+};
+
+/* ===================== WORKFLOW lifecycle (offer → save → reuse) ===================== */
+const wfOffer=$('#wfOffer'),wfSaved=$('#wfSaved'),wfBarT=$('#wfBarT'),wfNote=$('#wfNote');
+function wfResetState(){ wfBusy=false;
+  wfOffer.style.display=''; wfOffer.querySelector('div').innerHTML='<span class="who">Apprentice</span> — done, the new saves are fetched, transcribed and harvested. <span class="ask">want me to save this chain so I can run it again?</span>';
+  wfOffer.querySelector('.wfbtns').style.display='';
+  wfSaved.classList.remove('show');
+  wfBarT.textContent='you just had it process your saved reels — chaining four steps for the first time';
+  $$('#wfSteps .step').forEach(s=>s.classList.remove('done','active'));
+  $('#wfRun').textContent='run it again →';
+}
+$('#wfYes').onclick=()=>{ wfOffer.style.display='none'; wfSaved.classList.add('show');
+  wfBarT.textContent='saved · now it just runs when you ask'; };
+$('#wfNo').onclick=()=>{ wfOffer.querySelector('.wfbtns').style.display='none';
+  wfOffer.querySelector('div').innerHTML='<span class="who">Apprentice</span> — no problem, nothing saved. <span class="ask">you\'re always in control of what gets kept.</span> <span class="wfreset" id="wfReset2">↺ start over</span>';
+  $('#wfReset2').onclick=wfResetState; };
+let wfBusy=false;
+$('#wfRun').onclick=()=>{ if(wfBusy)return; wfBusy=true; const btn=$('#wfRun'),steps=$$('#wfSteps .step');
+  steps.forEach(s=>s.classList.remove('done','active')); btn.textContent='running…';
+  let i=0; const t=setInterval(()=>{ if(i>0){steps[i-1].classList.remove('active');steps[i-1].classList.add('done');}
+    if(i<steps.length){steps[i].classList.add('active');} else {clearInterval(t);btn.textContent='↺ run again';wfBusy=false;} i++; },560);
+};
+$('#wfReset').onclick=wfResetState;
+</script>
+</body>
+</html>

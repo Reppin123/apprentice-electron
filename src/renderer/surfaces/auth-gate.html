@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice Sign In</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Port of AuthGateWindow.swift — 460x320 borderless floating card. States
+     crossfade (keyed by a stable presentation id) so re-checks don't flicker.
+     Driven by synthetic {type:"auth_state"} host frames. */
+  html,body{background:transparent;overflow:hidden;height:100%;}
+  body{display:flex;align-items:center;justify-content:center;}
+  .card{width:460px;height:320px;border-radius:var(--r-panel);background:var(--ground);
+    border:1px solid rgba(255,255,255,.07);padding:24px;display:flex;flex-direction:column;gap:16px;
+    -webkit-app-region:drag;opacity:0;transform:scale(.975);
+    transition:opacity .3s ease-out,transform .3s ease-out;}
+  .card.in{opacity:1;transform:scale(1);}
+  .card button,.card .x{-webkit-app-region:no-drag;}
+
+  .head{display:flex;align-items:center;gap:9px;}
+  .spark{color:var(--indigo);display:flex;flex:0 0 auto;}
+  .brand{font-size:15px;font-weight:500;color:var(--ink);}
+  .x{margin-left:auto;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+    color:var(--dim);cursor:pointer;flex:0 0 auto;}
+  .x:hover{color:var(--ink);}
+
+  .msg{display:flex;flex-direction:column;gap:8px;transition:opacity .28s ease-in-out;}
+  .msg h1{font-size:16.5px;font-weight:500;color:var(--ink);}
+  .msg p{font-size:12.5px;font-weight:300;color:var(--dim);line-height:1.55;}
+  .waitrow{display:flex;align-items:center;gap:8px;margin-top:2px;}
+  .spin{width:12px;height:12px;border-radius:50%;border:1.5px solid rgba(106,123,255,.25);
+    border-top-color:var(--indigo);animation:rot .8s linear infinite;flex:0 0 auto;}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .waitrow span{font-size:11px;font-weight:300;color:var(--faint);}
+
+  .spacer{flex:1;min-height:4px;}
+  .actions{display:flex;justify-content:flex-end;gap:10px;transition:opacity .28s ease-in-out;}
+  .actions.hide{display:none;}
+  .btn{font-family:var(--font);font-size:13px;font-weight:400;color:var(--ink);border:0;cursor:pointer;
+    padding:9px 14px;border-radius:9px;background:rgba(255,255,255,.08);}
+  .btn:hover{background:rgba(255,255,255,.12);}
+  .btn.primary{font-weight:500;color:#0A0B10;padding:9px 16px;background:var(--indigo);}
+  .btn.primary:hover{background:#7C8BFF;}
+
+  .keys{font-size:10.5px;font-weight:300;color:var(--faint);line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="head">
+    <span class="spark"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 1.2c.5 3 1.6 4.6 6 6.8-4.4 2.2-5.5 3.8-6 6.8-.5-3-1.6-4.6-6-6.8 4.4-2.2 5.5-3.8 6-6.8Z"/></svg></span>
+    <span class="brand">Apprentice</span>
+    <span class="x" onclick="sendMsg({type:'ui_action',action:'auth_close'})" title="Close (Esc)"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4.6 4.6 11.4 11.4M11.4 4.6 4.6 11.4"/></svg></span>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div class="spacer"></div>
+  <div class="actions" id="actions">
+    <button class="btn" onclick="sendMsg({type:'ui_action',action:'auth_login',value:'console'})">Use API billing</button>
+    <button class="btn primary" onclick="sendMsg({type:'ui_action',action:'auth_login',value:'claudeai'})">Sign in with Claude</button>
+  </div>
+  <div class="keys">Your credentials stay on this computer, in the Claude CLI's own keychain — Apprentice never sees them.</div>
+</div>
+<script>
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+
+// Collapse states into a few calm presentations — loggedOut reads as "signin".
+const KEY={loggedOut:'signin',loggingIn:'waiting',freeTier:'free',authorized:'welcome',error:'error'};
+const CARDS={
+  signin:{h:"Let's get you signed in",
+    b:"Connect your Claude account to begin — use your Pro or Max subscription, or pay-as-you-go API billing. Either one opens in your browser.",actions:true},
+  waiting:{h:"Finishing up in your browser",
+    b:"Complete the sign-in in the tab that just opened. Apprentice will pick it up automatically — no need to come back here.",spinner:true},
+  free:{h:"You're on the free Claude plan",
+    b:"Apprentice needs a paid plan. Upgrade to Claude Pro or Max, or use pay-as-you-go API billing below.",actions:true},
+  welcome:{h:"You're in"},
+  error:{h:"Couldn't start sign-in",
+    b:"Apprentice couldn't reach the Claude sign-in on this computer. Give it another go below, or close this (Esc) and relaunch Apprentice.",actions:true}
+};
+
+let cur=null,email='';
+function build(key){
+  const c=CARDS[key];
+  const msg=document.getElementById('msg');
+  let b=c.b;
+  if(key==='welcome')b=(email&&email[0]!=='<')?('Signed in as '+email+'.'):'Getting things ready…';
+  msg.innerHTML='<h1></h1><p></p>'+(c.spinner?'<div class="waitrow"><span class="spin"></span><span>waiting for you…</span></div>':'');
+  msg.querySelector('h1').textContent=c.h;
+  msg.querySelector('p').textContent=b;
+  document.getElementById('actions').classList.toggle('hide',!c.actions);
+}
+function present(key){
+  if(key===cur){ if(key==='welcome')build(key); return; }   // re-checks don't flicker
+  const msg=document.getElementById('msg');
+  if(cur===null){cur=key;build(key);return;}
+  cur=key;
+  msg.style.opacity=0;
+  setTimeout(()=>{build(key);msg.style.opacity=1;},160);
+}
+
+const AGENT={};
+AGENT['auth_state']=function(m){
+  if(m.email!=null)email=m.email;
+  present(KEY[m.state]||'signin');};
+
+window.__onWired=function(){};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+window.addEventListener('keydown',e=>{if(e.key==='Escape')sendMsg({type:'ui_action',action:'auth_close'});});
+
+present('signin');
+requestAnimationFrame(()=>document.getElementById('card').classList.add('in'));
+</script>
+</body>
+</html>

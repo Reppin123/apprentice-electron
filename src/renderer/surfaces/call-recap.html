@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · call recap</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* Post-call recap — faithful to CallRecapView (CallAssistViews.swift): 440-wide
+     Granola-calm panel. Title + meta, summary, Decisions / For you / Action items,
+     Follow-ups, then the footer row (View full transcript → · Past calls · toast ·
+     Done). Fed a call_summary by main after the call stops. */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  .panel{position:fixed;top:10px;left:10px;width:440px;display:none;
+    background:var(--surface);border:1px solid var(--hair);border-radius:18px;
+    box-shadow:0 18px 30px rgba(0,0,0,.6);padding:24px 26px 22px;}
+  .title{font-size:19px;font-weight:600;color:var(--ink);cursor:default;}
+  .meta{font-size:12px;font-weight:300;color:var(--faint);margin-top:5px;}
+  .sum{font-size:14.5px;font-weight:300;color:var(--dim);line-height:1.55;margin-top:18px;}
+  .shead{font-size:10.5px;font-weight:600;letter-spacing:2.2px;color:var(--faint);
+    text-transform:uppercase;margin:22px 0 11px;}
+  .items{display:flex;flex-direction:column;gap:9px;}
+  .item{display:flex;align-items:flex-start;gap:11px;}
+  .idot{width:5px;height:5px;border-radius:50%;margin-top:7px;flex:0 0 auto;}
+  .itext{font-size:14px;font-weight:300;color:var(--ink);line-height:1.4;}
+  .fu{padding:11px 0;border-top:1px solid var(--hair2);}
+  .futext{font-size:14px;font-weight:300;color:var(--ink);line-height:1.4;}
+  .fuwhen{font-size:12px;font-weight:300;color:var(--faint);margin-top:3px;}
+  .foot{display:flex;align-items:center;gap:14px;margin-top:20px;}
+  .link{background:none;border:0;padding:0;cursor:pointer;font-family:var(--font);
+    font-size:12.5px;font-weight:300;}
+  .link.indigo{color:var(--indigo);}
+  .link.dim{color:var(--dim);}
+  .toast{font-size:12px;font-weight:300;color:var(--teal);}
+</style>
+</head>
+<body>
+  <div class="panel" id="panel">
+    <div class="title" id="title">Call recap</div>
+    <div class="meta" id="meta"></div>
+    <div id="bodyEl"></div>
+    <div class="foot">
+      <button class="link indigo" id="viewTx" hidden>View full transcript →</button>
+      <button class="link dim" id="pastCalls" title="Browse past calls">Past calls</button>
+      <span style="flex:1"></span>
+      <span class="toast" id="toast" hidden></span>
+      <button class="link dim" id="done">Done</button>
+    </div>
+  </div>
+<script>
+const NAMES_KEY='apprentice.call.speakerNames', META_KEY='apprentice.call.meta';
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let NAMES={};try{NAMES=JSON.parse(localStorage.getItem(NAMES_KEY))||{};}catch(e){}
+function substitute(t){let out=String(t);
+  for(const k of Object.keys(NAMES).filter(k=>NAMES[k]).sort((a,b)=>b.length-a.length))
+    out=out.split(k).join(NAMES[k]);
+  return out;}
+
+let SUM=null;
+function metaStr(m){
+  let meta={};try{meta=JSON.parse(localStorage.getItem(META_KEY))||{};}catch(e){}
+  let count=meta.count;
+  if(count==null)count=new Set((m.transcript||[]).map(t=>t.speaker).filter(Boolean)).size;
+  const people=count===1?'1 voice':Math.max(count,1)+' people';
+  return (meta.elapsed?meta.elapsed+' · ':'')+people;
+}
+function section(title,items,dot){
+  if(!items||!items.length)return '';
+  return '<div class="shead">'+title+'</div><div class="items">'+
+    items.map(t=>'<div class="item"><span class="idot" style="background:'+dot+'"></span>'+
+      '<span class="itext">'+esc(substitute(t))+'</span></div>').join('')+'</div>';
+}
+function render(){
+  if(!SUM)return;
+  document.getElementById('panel').style.display='block';
+  document.getElementById('meta').textContent=metaStr(SUM);
+  let h='';
+  if(SUM.summary)h+='<div class="sum">'+esc(substitute(SUM.summary))+'</div>';
+  h+=section('Decisions',SUM.decisions,'var(--teal)');
+  h+=section('For you',SUM.instructions,'var(--lilac)');
+  h+=section('Action items',SUM.action_items,'var(--faint)');
+  const fus=SUM.follow_ups||[];
+  if(fus.length){
+    h+='<div class="shead">Follow-ups</div>';
+    h+=fus.map(fu=>'<div class="fu"><div class="futext">'+esc(substitute(fu.text||''))+'</div>'+
+      (fu.when_text?'<div class="fuwhen">'+esc(fu.when_text)+'</div>':'')+'</div>').join('');
+  }
+  document.getElementById('bodyEl').innerHTML=h;
+  document.getElementById('viewTx').hidden=!(SUM.transcript_path);
+}
+
+function ui(action,value){if(WIRED)sendMsg({type:'ui_action',action:action,value:value});}
+document.getElementById('viewTx').onclick=()=>ui('call_open_window','minutes');
+document.getElementById('pastCalls').onclick=()=>ui('call_open_window','history');
+document.getElementById('done').onclick=()=>ui('call_close','recap');
+document.getElementById('title').addEventListener('mousedown',()=>sendMsg({type:'__winmove'}));
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+const AGENT={};
+
+AGENT['call_summary']=function(m){SUM=m;render();};
+AGENT['call_action_result']=function(m){
+  const t=document.getElementById('toast');
+  t.textContent=m.ok?('Added to '+(m.kind==='calendar'?'Calendar':'Reminders')+' ✓'):'Couldn’t add it';
+  t.hidden=false;
+};
+
+window.__onWired=function(){WIRED=true;};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+// a rename in the live panel / minutes window (same-origin localStorage) propagates here
+window.addEventListener('storage',e=>{
+  if(e.key!==NAMES_KEY)return;
+  try{NAMES=JSON.parse(e.newValue)||{};}catch(err){NAMES={};}
+  render();
+});
+</script>
+</body>
+</html>

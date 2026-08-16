@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Apprentice · follow-up</title>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  /* "Book a follow-up?" prompt — faithful to CallDialogView (CallAssistViews.swift):
+     300-wide panel, amber eyebrow, question, optional when line, Book / Not now.
+     Fed a call_dialog by main; answers with call_dialog_response. */
+  html,body{overflow:hidden;background:transparent;height:100%;}
+  .panel{position:fixed;top:10px;left:10px;width:300px;display:none;
+    background:var(--surface);border:1px solid var(--hair);border-radius:18px;
+    box-shadow:0 18px 30px rgba(0,0,0,.6);padding:22px 22px 18px;}
+  .eyebrow{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:600;
+    letter-spacing:2.4px;color:var(--amber);cursor:default;}
+  .edot{width:5px;height:5px;border-radius:50%;background:var(--amber);flex:0 0 auto;}
+  .q{font-size:16px;font-weight:300;color:var(--ink);line-height:1.4;margin-top:14px;}
+  .when{font-size:12.5px;font-weight:300;color:var(--dim);margin-top:9px;}
+  .btns{display:flex;gap:10px;margin-top:20px;}
+  .book{flex:1;font-family:var(--font);font-size:13px;font-weight:500;color:#06060A;
+    background:rgba(106,123,255,.92);border:0;border-radius:11px;padding:10px 0;cursor:pointer;}
+  .notnow{flex:1;font-family:var(--font);font-size:13px;font-weight:300;color:var(--dim);
+    background:none;border:1px solid var(--hair);border-radius:11px;padding:10px 0;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div class="panel" id="panel">
+    <div class="eyebrow" id="eyebrow"><span class="edot"></span>BOOK A FOLLOW-UP?</div>
+    <div class="q" id="q"></div>
+    <div class="when" id="when" hidden></div>
+    <div class="btns">
+      <button class="book" id="book">Book</button>
+      <button class="notnow" id="notnow">Not now</button>
+    </div>
+  </div>
+<script>
+const NAMES_KEY='apprentice.call.speakerNames';
+let NAMES={};try{NAMES=JSON.parse(localStorage.getItem(NAMES_KEY))||{};}catch(e){}
+function substitute(t){let out=String(t);
+  for(const k of Object.keys(NAMES).filter(k=>NAMES[k]).sort((a,b)=>b.length-a.length))
+    out=out.split(k).join(NAMES[k]);
+  return out;}
+
+let DIALOG=null;
+function answer(yes){
+  if(DIALOG)sendMsg({type:'call_dialog_response',id:DIALOG.id,answer:yes?'yes':'no'});
+  sendMsg({type:'ui_action',action:'call_close',value:'dialog'});
+}
+document.getElementById('book').onclick=()=>answer(true);
+document.getElementById('notnow').onclick=()=>answer(false);
+document.getElementById('eyebrow').addEventListener('mousedown',()=>sendMsg({type:'__winmove'}));
+
+// ---------- live wire ----------
+let WIRED=false;
+function sendMsg(o){const s=JSON.stringify(o);
+  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.agent)window.webkit.messageHandlers.agent.postMessage(s);
+  else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
+const AGENT={};
+
+AGENT['call_dialog']=function(m){
+  const fu=m.follow_up||{};
+  DIALOG={id:m.id,what:fu.text||m.question||'',when:fu.when_text||''};
+  document.getElementById('q').textContent=substitute(DIALOG.what);
+  const w=document.getElementById('when');
+  w.hidden=!DIALOG.when;
+  w.textContent=DIALOG.when;
+  document.getElementById('panel').style.display='block';
+};
+
+window.__onWired=function(){WIRED=true;};
+window.__agentMsg=function(s){try{const m=JSON.parse(s);if(AGENT[m.type])AGENT[m.type](m);}catch(e){}};
+</script>
+</body>
+</html>

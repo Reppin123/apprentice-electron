@@ -29,8 +29,21 @@ export function logDir(): string {
   return join(xdgState, 'Apprentice')
 }
 
+// Deliberately the BASELINE dir, never a suffixed/override data dir —
+// ClaudeCLIEnv.swift carries a "do not 'fix' this to appDataDir()" warning:
+// suffix-isolating the login would force a re-login, and sharing the CLI's
+// default ~/.claude would let our sign-out nuke the user's own Claude Code
+// keychain entry (the 2026-06-10 incident).
 export function claudeConfigDir(): string {
-  return join(dataDir(), 'claude-config')
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'Apprentice', 'claude')
+  }
+  if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
+    return join(local, 'Apprentice', 'claude')
+  }
+  const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
+  return join(xdg, 'Apprentice', 'claude')
 }
 
 // Token policy mirrors BridgeAuth.swift + agent.py: env override wins, else

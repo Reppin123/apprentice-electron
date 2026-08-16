@@ -38,6 +38,11 @@ function main(): void {
 
   let agentState = 'starting'
   let lastVoiceState = 'resting'
+  // assert-and-PREFER: reads never recompute — once the agent echoes its
+  // dirs in the hello, shell-side file reads use those (attach mode may
+  // legitimately land on a differently-rooted agent, e.g. an A/B arm).
+  let agentDataDir: string | null = null
+  const effectiveDataDir = (): string => agentDataDir || dataDir()
 
   const pushShellStatus = (): void => {
     const p = permState()
@@ -85,8 +90,11 @@ function main(): void {
       // config-dir integrity: launcher owns policy, agent owns mechanism —
       // a mismatch here is the class of bug that blanked call history.
       const agentData = (msg.dirs as Record<string, unknown>).data_dir
-      if (agentData && agentData !== dataDir()) {
-        console.error(`🔴 config-dir MISMATCH: shell=${dataDir()} agent=${agentData}`)
+      if (typeof agentData === 'string' && agentData) {
+        if (agentData !== dataDir()) {
+          console.error(`🔴 config-dir MISMATCH: shell=${dataDir()} agent=${agentData} — preferring the agent's`)
+        }
+        agentDataDir = agentData
       }
     }
     // presence/annotation router (may consume)
@@ -296,7 +304,7 @@ function main(): void {
         if (typeof value === 'string' && existsSync(value)) shell.showItemInFolder(value)
         break
       case 'call_delete_record':
-        if (typeof value === 'string' && value.startsWith(join(dataDir(), 'calls'))) {
+        if (typeof value === 'string' && value.startsWith(join(effectiveDataDir(), 'calls'))) {
           try {
             require('fs').unlinkSync(value)
           } catch {
@@ -335,7 +343,7 @@ function main(): void {
       }
       case 'apv_autosave': {
         try {
-          const dir = join(dataDir(), 'VideoProjects')
+          const dir = join(effectiveDataDir(), 'VideoProjects')
           if (!existsSync(dir)) require('fs').mkdirSync(dir, { recursive: true })
           writeFileSync(join(dir, 'Untitled.apvproj.json'), JSON.stringify(value))
         } catch (err) {
@@ -363,7 +371,7 @@ function main(): void {
   }
 
   function pushCallHistory(sender: Electron.WebContents): void {
-    const dir = join(dataDir(), 'calls')
+    const dir = join(effectiveDataDir(), 'calls')
     let records: Record<string, unknown>[] = []
     try {
       records = readdirSync(dir)

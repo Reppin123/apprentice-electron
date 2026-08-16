@@ -4,6 +4,7 @@ import { join, basename } from 'path'
 import { AgentBridge } from './bridge'
 import { AgentProcess } from './agentProcess'
 import { SurfaceRelay } from './relay'
+import { safeSend } from './relay'
 import { SurfaceManager, markQuitting } from './windows'
 import { SettingsStore } from './settings'
 import { registerHotkeys, unregisterHotkeys } from './input'
@@ -499,10 +500,10 @@ function main(): void {
       const resume = settings.get('onboardingResume') as string
       if (resume) {
         ob.webContents.on('did-finish-load', () => {
-          ob.webContents.send('bridge:message', { type: 'onboarding_resume', step: resume })
+          safeSend(ob.webContents, 'bridge:message', { type: 'onboarding_resume', step: resume })
         })
         // also cover the already-loaded case
-        ob.webContents.send('bridge:message', { type: 'onboarding_resume', step: resume })
+        safeSend(ob.webContents, 'bridge:message', { type: 'onboarding_resume', step: resume })
         settings.set('onboardingResume', '')
       }
       pushPerms()

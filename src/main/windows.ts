@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { SurfaceRelay } from './relay'
+import { safeSend } from './relay'
 
 // Window manager — the Electron twin of WebSurfaceHost.Surface plus every
 // native window the Swift app had. Geometry is Electron screen coords
@@ -265,7 +266,7 @@ export class SurfaceManager {
         }
         win.setIgnoreMouseEvents(!over, { forward: true })
         if (!this.dragTimer) {
-          win.webContents.send('host:cursor', cursor.x - b.x, cursor.y - b.y, inWin)
+          safeSend(win.webContents, 'host:cursor', cursor.x - b.x, cursor.y - b.y, inWin)
         }
       }
     }, 50)

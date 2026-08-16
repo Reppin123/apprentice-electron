@@ -8,6 +8,7 @@ import { GoogleTTSBackend, GOOGLE_DEFAULT_VOICE } from './tts/google'
 import { CartesiaTTSBackend } from './tts/cartesia'
 import { SystemTTSBackend } from './tts/system'
 import { FailoverSTT, SttEngine } from './stt/native'
+import { safeSend } from '../relay'
 
 // The voice facade — the Electron twin of the Swift voice stack
 // (CompanionManager voice paths + BuddyDictationManager + drive-mode
@@ -269,7 +270,7 @@ export class VoiceService {
     // Same channel the preload already speaks ('bridge:message' →
     // window.apprentice.onMessage), targeted at the audio window only so
     // base64 audio doesn't fan out to every surface.
-    win.webContents.send('bridge:message', frame)
+    safeSend(win.webContents, 'bridge:message', frame)
   }
 
   /// Drive-mode pushVoice twin: derive the pill state from (dictation,

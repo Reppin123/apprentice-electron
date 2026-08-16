@@ -1,6 +1,7 @@
 import { createServer, Server } from 'http'
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
+import { safeSend } from './relay'
 
 // The APV editor's loopback MCP server — Python's apv_editor.py POSTs
 // JSON-RPC 2.0 to http://127.0.0.1:19791/mcp. The Swift twin (APVMCPServer)
@@ -129,7 +130,7 @@ export class ApvServer {
         resolve({ text: 'editor did not respond', is_error: true })
       }, 25000)
       this.pending.set(id, { resolve, timer })
-      win.webContents.send('bridge:message', { type: 'apv_rpc', id, name, args })
+      safeSend(win.webContents, 'bridge:message', { type: 'apv_rpc', id, name, args })
     })
   }
 }

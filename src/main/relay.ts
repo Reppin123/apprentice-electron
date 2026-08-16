@@ -43,8 +43,8 @@ export class SurfaceRelay {
   register(wc: WebContents): void {
     this.views.add(wc)
     wc.on('destroyed', () => this.views.delete(wc))
-    if (this.lastHello) wc.send('bridge:message', this.lastHello)
-    if (this.bridge.connected) wc.send('host:wired')
+    if (this.lastHello) safeSend(wc, 'bridge:message', this.lastHello)
+    if (this.bridge.connected) safeSend(wc, 'host:wired')
   }
 
   /** A frame from a surface (ipc surface:send). */
@@ -68,10 +68,20 @@ export class SurfaceRelay {
   }
 
   private wakeAll(): void {
-    for (const wc of this.views) if (!wc.isDestroyed()) wc.send('host:wired')
+    for (const wc of this.views) safeSend(wc, 'host:wired')
   }
 
   private fanOut(msg: BridgeMessage): void {
-    for (const wc of this.views) if (!wc.isDestroyed()) wc.send('bridge:message', msg)
+    for (const wc of this.views) safeSend(wc, 'bridge:message', msg)
+  }
+}
+
+/** send() can throw mid-teardown ("Render frame was disposed") even after an
+ *  isDestroyed() check passes — the disposal races the timer. Never fatal. */
+export function safeSend(wc: WebContents, channel: string, ...args: unknown[]): void {
+  try {
+    if (!wc.isDestroyed()) wc.send(channel, ...args)
+  } catch {
+    /* frame died between check and send */
   }
 }

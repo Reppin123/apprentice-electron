@@ -5,6 +5,7 @@ import { existsSync } from 'fs'
 import { AgentBridge } from './bridge'
 import { BridgeMessage } from '../shared/protocol'
 import { surfacesDir } from './windows'
+import { safeSend } from './relay'
 
 // The presence layer: one full-screen click-through overlay window per
 // display (orb + bubbles + toast + annotations), plus the pointing/annotation
@@ -70,7 +71,7 @@ export class OverlayService {
   /** Push a synthetic frame to every overlay window. */
   broadcast(msg: BridgeMessage): void {
     for (const w of this.overlays.values()) {
-      if (!w.isDestroyed()) w.webContents.send('bridge:message', msg)
+      safeSend(w.webContents, 'bridge:message', msg)
     }
   }
 
@@ -165,7 +166,7 @@ export class OverlayService {
   private sendToDisplay(pt: { x: number; y: number }, msg: BridgeMessage): void {
     const d = this.displayFor(pt)
     const w = this.overlays.get(d.id)
-    if (w && !w.isDestroyed()) w.webContents.send('bridge:message', msg)
+    if (w) safeSend(w.webContents, 'bridge:message', msg)
   }
 
   // ── handlers ──────────────────────────────────────────────────────────
@@ -308,7 +309,7 @@ export class OverlayService {
       win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
       win.loadFile(join(surfacesDir(), 'overlay.html'))
       win.webContents.on('did-finish-load', () => {
-        win.webContents.send('bridge:message', { type: 'overlay_state', ...this.orbState })
+        safeSend(win.webContents, 'bridge:message', { type: 'overlay_state', ...this.orbState })
         win.showInactive()
       })
       this.overlays.set(id, win)
@@ -326,7 +327,7 @@ export class OverlayService {
         c.x < d.bounds.x + d.bounds.width &&
         c.y >= d.bounds.y &&
         c.y < d.bounds.y + d.bounds.height
-      w.webContents.send('host:cursor', c.x - d.bounds.x, c.y - d.bounds.y, inside)
+      safeSend(w.webContents, 'host:cursor', c.x - d.bounds.x, c.y - d.bounds.y, inside)
     }
   }
 }

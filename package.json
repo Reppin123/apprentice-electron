@@ -6,6 +6,7 @@
   "author": "Akshit Bansal",
   "private": true,
   "scripts": {
+    "postinstall": "bash scripts/patch-dev-electron.sh || true",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",

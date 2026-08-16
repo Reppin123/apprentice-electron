@@ -12,7 +12,7 @@ extraResources:
   # per-OS native helpers
   - from: resources/darwin
     to: darwin
-    filter: ['apprentice-resolve']
+    filter: ['apprentice-resolve', 'apprentice-stt']
   # the frozen python agent (Nuitka dist) — place a build at resources/agent.dist
   # before packaging; dev runs attach to the source agent instead.
   - from: resources/agent.dist

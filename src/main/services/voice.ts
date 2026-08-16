@@ -7,7 +7,7 @@ import { OpenAITTSBackend, OPENAI_DEFAULT_VOICE, OPENAI_SPEED_RANGE } from './tt
 import { GoogleTTSBackend, GOOGLE_DEFAULT_VOICE } from './tts/google'
 import { CartesiaTTSBackend } from './tts/cartesia'
 import { SystemTTSBackend } from './tts/system'
-import { DeepgramSTT } from './stt/deepgram'
+import { FailoverSTT, SttEngine } from './stt/native'
 
 // The voice facade — the Electron twin of the Swift voice stack
 // (CompanionManager voice paths + BuddyDictationManager + drive-mode
@@ -41,7 +41,7 @@ export class VoiceService {
   private backendSig = ''
   private sysTts: SystemTTSBackend | null = null
 
-  private stt: DeepgramSTT | null = null
+  private stt: SttEngine | null = null
   private micMode: MicMode = 'off'
   private callMode = 'remote'
   private loopbackHandlerSet = false
@@ -249,11 +249,9 @@ export class VoiceService {
   // MARK: - Internals
 
   private beginStt(): void {
-    if (!DeepgramSTT.hasCredentials()) {
-      this.stt = null
-      return
-    }
-    const stt = new DeepgramSTT()
+    // Native Apple Speech on mac (prod-parity, on-device) with transparent
+    // Deepgram failover; Deepgram directly elsewhere.
+    const stt = new FailoverSTT()
     this.stt = stt
     stt.start().catch((err) => {
       console.warn('[voice] deepgram start failed', err)

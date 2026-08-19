@@ -1,6 +1,6 @@
 {
   "name": "apprentice-electron",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Apprentice — cross-platform shell (macOS + Windows) for the Apprentice agent",
   "main": "./out/main/index.js",
   "author": "Akshit Bansal",

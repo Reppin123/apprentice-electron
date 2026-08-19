@@ -3,9 +3,24 @@
 <head>
 <meta charset="utf-8"/>
 <title>Apprentice Audio</title>
-<style>html,body{margin:0;background:transparent;overflow:hidden;width:0;height:0;}</style>
+<style>
+html,body{margin:0;background:#0a0b10;overflow:hidden;height:100%;font-family:system-ui,sans-serif;}
+#perm{display:none;box-sizing:border-box;height:100%;padding:28px 32px;color:#f3f1ea;}
+#perm h1{font-size:16px;font-weight:500;margin:0 0 10px;}
+#perm p{font-size:13px;font-weight:300;color:#a8a8a8;line-height:1.5;margin:0 0 22px;}
+#allow{appearance:none;border:0;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:500;
+  color:#fff;background:#6a7bff;cursor:pointer;}
+#allow:hover{filter:brightness(1.08);}
+#later{appearance:none;border:0;background:transparent;color:#6b6b6b;font-size:12px;margin-left:14px;cursor:pointer;}
+</style>
 </head>
 <body>
+<div id="perm">
+  <h1>Apprentice needs the microphone</h1>
+  <p>Click Allow, then accept the Windows prompt so I can hear you when you hold Ctrl+Alt.</p>
+  <button id="allow" type="button">Allow microphone</button>
+  <button id="later" type="button">Not now</button>
+</div>
 <script>
 'use strict';
 // Hidden audio surface: Web Audio playback for the TTS backends + mic
@@ -213,13 +228,26 @@ function resampleTo16k(f, fromRate) {
 }
 
 function probeMic() {
+  const panel = document.getElementById('perm');
+  if (panel) panel.style.display = 'block';
+}
+
+function askMic() {
   navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
     stream.getTracks().forEach((t) => t.stop());
+    const panel = document.getElementById('perm');
+    if (panel) panel.style.display = 'none';
     send({ type: 'ui_action', action: 'mic_ready' });
   }).catch((err) => {
     send({ type: 'ui_action', action: 'mic_error', value: String(err) });
   });
 }
+document.getElementById('allow')?.addEventListener('click', askMic);
+document.getElementById('later')?.addEventListener('click', () => {
+  const panel = document.getElementById('perm');
+  if (panel) panel.style.display = 'none';
+  send({ type: 'ui_action', action: 'mic_dismissed' });
+});
 
 function startMic(captureSys) {
   if (mic) return;

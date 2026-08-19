@@ -28,25 +28,39 @@ if (!gotLock) {
   main()
 }
 
-/** Persistent taskbar button on Windows (tray-only apps land in the overflow). */
+/** Minimized opaque window so Windows 11 has a real taskbar icon (not a
+ *  transparent thumbnail) and so taskbar Close actually quits. */
 function installWindowsTaskbar(onActivate: () => void): void {
   const icon = nativeImage.createFromPath(appIcon())
+  const pngPack = join(process.resourcesPath || '', 'icon.png')
+  const pngDev = join(app.getAppPath(), 'resources', 'icon.png')
+  const png = existsSync(pngPack) ? pngPack : pngDev
   const win = new BrowserWindow({
-    width: 1,
-    height: 1,
-    x: -32000,
-    y: -32000,
+    width: 256,
+    height: 256,
     show: false,
     frame: false,
     skipTaskbar: false,
-    focusable: true,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#050506',
     title: 'Apprentice',
-    icon: icon.isEmpty() ? undefined : icon
+    icon: icon.isEmpty() ? undefined : icon,
+    minimizable: true,
+    maximizable: false
   })
-  win.setSkipTaskbar(false)
-  win.showInactive()
-  win.on('focus', () => onActivate())
+  if (existsSync(png)) void win.loadFile(png)
+  win.once('ready-to-show', () => {
+    win.setSkipTaskbar(false)
+    win.showInactive()
+    win.minimize()
+  })
+  win.on('restore', () => {
+    onActivate()
+    win.minimize()
+  })
+  win.on('close', () => {
+    app.quit()
+  })
 }
 
 function main(): void {

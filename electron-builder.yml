@@ -21,6 +21,10 @@ extraResources:
   # before packaging; dev runs attach to the source agent instead.
   - from: resources/agent.dist
     to: agent.dist
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
 mac:
   category: public.app-category.productivity
   target:

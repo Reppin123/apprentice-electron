@@ -23,8 +23,14 @@ export function dataDir(): string {
   return join(xdg, 'Apprentice')
 }
 
-/** Window / tray icon. Packaged surfaces carry apprentice-mark.png. */
+/** Window / tray icon. Packaged surfaces carry the mark; Windows prefers the .ico. */
 export function appIcon(): string {
+  if (process.platform === 'win32') {
+    const icoPack = join(process.resourcesPath || '', 'icon.ico')
+    const icoDev = join(app.getAppPath(), 'resources', 'icon.ico')
+    if (existsSync(icoPack)) return icoPack
+    if (existsSync(icoDev)) return icoDev
+  }
   const packaged = join(process.resourcesPath || '', 'surfaces', 'apprentice-mark.png')
   const dev = join(app.getAppPath(), 'src', 'renderer', 'surfaces', 'apprentice-mark.png')
   return existsSync(packaged) ? packaged : dev

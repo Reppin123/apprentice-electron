@@ -51,8 +51,9 @@ export const SURFACES: Record<string, SurfaceSpec> = {
   'call-history': { page: 'call-history.html', width: 560, height: 640, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, title: 'Past calls', level: 'normal' },
   'video-editor': { page: 'video-editor.html', width: 1440, height: 900, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, minWidth: 1000, minHeight: 600, title: 'Apprentice Video', level: 'normal' },
   'apv-editor': { page: 'apv-editor.html', width: 1280, height: 820, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, minWidth: 900, minHeight: 600, title: 'Apprentice Editor', level: 'normal' },
-  // Non-zero size: Chromium on Windows will not initialize media in a 0×0 window.
-  audio: { page: 'audio.html', width: 16, height: 16, transparent: true, anchor: 'center', clickThrough: true, focusable: false, level: 'normal' }
+  // Opaque + not click-through: Windows will not deliver mouse events (the
+  // Allow-microphone button) through a transparent click-through surface.
+  audio: { page: 'audio.html', width: 16, height: 16, transparent: false, anchor: 'center', clickThrough: false, focusable: false, level: 'normal' }
 }
 
 export function surfacesDir(): string {
@@ -256,7 +257,7 @@ export class SurfaceManager {
       const cursor = screen.getCursorScreenPoint()
       for (const [key, win] of this.windows) {
         const spec = SURFACES[key]
-        if (!spec?.clickThrough || win.isDestroyed() || !win.isVisible()) continue
+        if (key === 'audio' || !spec?.clickThrough || win.isDestroyed() || !win.isVisible()) continue
         const b = win.getBounds()
         const inWin = cursor.x >= b.x && cursor.x < b.x + b.width && cursor.y >= b.y && cursor.y < b.y + b.height
         const hr = this.hotRects.get(win.webContents.id)

@@ -1,4 +1,4 @@
-import { clipboard, desktopCapturer, Notification, screen, systemPreferences } from 'electron'
+import { clipboard, desktopCapturer, Notification, screen } from 'electron'
 import { spawn } from 'node:child_process'
 import { UtteranceController, UtteranceEvents } from './utterances'
 import { AudioSink, TTSBackend, TTSCallbacks } from './tts/types'
@@ -46,6 +46,7 @@ export class VoiceService {
   private micMode: MicMode = 'off'
   private callMode = 'remote'
   private loopbackHandlerSet = false
+  private micPrimed = false
 
   // Voice-state derivation inputs (pushVoice twin from leanring_buddyApp).
   private capturing = false
@@ -98,6 +99,10 @@ export class VoiceService {
 
   pttDown(): void {
     if (this.micMode !== 'off') return
+    if (process.platform === 'win32' && !this.micPrimed) {
+      void this.ensureMicAccess(true)
+      return
+    }
     this.interrupt() // barge-in: the apprentice yields the floor
     this.micMode = 'ptt'
     this.capturing = true
@@ -245,6 +250,11 @@ export class VoiceService {
       return true
     }
     if (action === 'mic_ready') {
+      this.micPrimed = true
+      this.parkAudioWindow()
+      return true
+    }
+    if (action === 'mic_dismissed') {
       this.parkAudioWindow()
       return true
     }
@@ -272,14 +282,21 @@ export class VoiceService {
 
   private async ensureMicAccess(forceProbe = false): Promise<void> {
     if (process.platform !== 'win32') return
-    const already = systemPreferences.getMediaAccessStatus('microphone') === 'granted'
-    if (already && !forceProbe) return
+    if (this.micPrimed && !forceProbe) return
     const win = this.deps.getAudioWindow()
     if (!win || win.isDestroyed()) return
     const wa = screen.getPrimaryDisplay().workArea
-    win.setBounds({ x: wa.x + 80, y: wa.y + 80, width: 360, height: 140 })
-    win.setSkipTaskbar(true)
-    win.showInactive()
+    win.setIgnoreMouseEvents(false)
+    win.setFocusable(true)
+    win.setAlwaysOnTop(true, 'pop-up-menu')
+    win.setBounds({
+      x: Math.round(wa.x + (wa.width - 420) / 2),
+      y: Math.round(wa.y + (wa.height - 200) / 2),
+      width: 420,
+      height: 200
+    })
+    win.show()
+    win.focus()
     this.sendToAudio({ type: 'audio_mic_probe' })
   }
 
@@ -287,7 +304,9 @@ export class VoiceService {
     const win = this.deps.getAudioWindow()
     if (!win || win.isDestroyed()) return
     if (process.platform === 'win32') {
-      // Stay shown (off-screen) so Chromium keeps the media pipeline alive.
+      win.setAlwaysOnTop(false)
+      win.setFocusable(false)
+      win.setIgnoreMouseEvents(true, { forward: true })
       win.setBounds({ x: -400, y: -400, width: 16, height: 16 })
       win.showInactive()
     } else {

@@ -31,6 +31,7 @@ mac:
     NSMicrophoneUsageDescription: Apprentice listens only while you hold the push-to-talk keys.
     NSSpeechRecognitionUsageDescription: Transcription of your push-to-talk audio happens on demand.
 win:
+  icon: icon.ico
   target:
     - nsis
 nsis:

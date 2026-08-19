@@ -1,4 +1,4 @@
-import { clipboard, desktopCapturer } from 'electron'
+import { clipboard, desktopCapturer, Notification, screen, systemPreferences } from 'electron'
 import { spawn } from 'node:child_process'
 import { UtteranceController, UtteranceEvents } from './utterances'
 import { AudioSink, TTSBackend, TTSCallbacks } from './tts/types'
@@ -102,6 +102,7 @@ export class VoiceService {
     this.micMode = 'ptt'
     this.capturing = true
     this.finalizing = false
+    void this.ensureMicAccess()
     this.beginStt()
     this.sendToAudio({ type: 'audio_mic_start', capture_sys: false })
     this.pushVoiceState()
@@ -128,6 +129,7 @@ export class VoiceService {
         this.deps.pushToSurfaces({ type: 'overlay_toast', text: NO_STT_TOAST })
       }
       if (text) this.deps.send({ type: 'transcript_final', text })
+      else if (stt) this.notice("I didn't hear anything — check microphone permission if this keeps happening")
       this.finalizing = false
       this.pushVoiceState()
     })()
@@ -238,10 +240,12 @@ export class VoiceService {
     }
     if (action === 'mic_error') {
       console.warn('[voice] mic error from audio page:', value)
-      this.deps.pushToSurfaces({
-        type: 'overlay_toast',
-        text: "couldn't reach the microphone — check mic permission"
-      })
+      this.parkAudioWindow()
+      this.notice("couldn't reach the microphone — check mic permission")
+      return true
+    }
+    if (action === 'mic_ready') {
+      this.parkAudioWindow()
       return true
     }
     return false
@@ -257,7 +261,47 @@ export class VoiceService {
     stt.start().catch((err) => {
       console.warn('[voice] deepgram start failed', err)
       if (this.stt === stt) this.stt = null
+      this.notice("couldn't start transcription — check your network")
     })
+  }
+
+  /** Bring the audio window on-screen so Windows can show the mic prompt. */
+  requestMicAccess(): void {
+    void this.ensureMicAccess(true)
+  }
+
+  private async ensureMicAccess(forceProbe = false): Promise<void> {
+    if (process.platform !== 'win32') return
+    const already = systemPreferences.getMediaAccessStatus('microphone') === 'granted'
+    if (already && !forceProbe) return
+    const win = this.deps.getAudioWindow()
+    if (!win || win.isDestroyed()) return
+    const wa = screen.getPrimaryDisplay().workArea
+    win.setBounds({ x: wa.x + 80, y: wa.y + 80, width: 360, height: 140 })
+    win.setSkipTaskbar(true)
+    win.showInactive()
+    this.sendToAudio({ type: 'audio_mic_probe' })
+  }
+
+  private parkAudioWindow(): void {
+    const win = this.deps.getAudioWindow()
+    if (!win || win.isDestroyed()) return
+    if (process.platform === 'win32') {
+      // Stay shown (off-screen) so Chromium keeps the media pipeline alive.
+      win.setBounds({ x: -400, y: -400, width: 16, height: 16 })
+      win.showInactive()
+    } else {
+      win.hide()
+    }
+  }
+
+  private notice(text: string): void {
+    this.deps.pushToSurfaces({ type: 'overlay_toast', text })
+    try {
+      if (process.platform === 'win32') new Notification({ title: 'Apprentice', body: text }).show()
+    } catch {
+      /* notifications optional */
+    }
   }
 
   private sendToAudio(frame: Record<string, unknown>): void {

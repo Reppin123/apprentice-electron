@@ -178,6 +178,7 @@ function makeTap(stream, channel) {
   let c;
   try { c = new AudioContext({ sampleRate: TARGET_RATE }); }
   catch (_) { c = new AudioContext(); }
+  if (c.state === 'suspended') c.resume();
   const src = c.createMediaStreamSource(stream);
   const proc = c.createScriptProcessor(2048, 1, 1);
   const gain = c.createGain();
@@ -209,6 +210,15 @@ function resampleTo16k(f, fromRate) {
     out[i] = f[i0] + (f[i1] - f[i0]) * (pos - i0);
   }
   return out;
+}
+
+function probeMic() {
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+    stream.getTracks().forEach((t) => t.stop());
+    send({ type: 'ui_action', action: 'mic_ready' });
+  }).catch((err) => {
+    send({ type: 'ui_action', action: 'mic_error', value: String(err) });
+  });
 }
 
 function startMic(captureSys) {
@@ -262,6 +272,7 @@ window.apprentice.onMessage((m) => {
     case 'audio_stop': onAudioStop(); break;
     case 'audio_mic_start': startMic(!!m.capture_sys); break;
     case 'audio_mic_stop': stopMic(); break;
+    case 'audio_mic_probe': probeMic(); break;
     default: break; // agent frames fan out here too — ignore
   }
 });

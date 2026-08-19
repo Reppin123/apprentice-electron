@@ -691,6 +691,22 @@ const KEYS=[
    m:e=>e.ctrlKey&&e.metaKey&&alpha(e)==='v'},
 ];
 function alpha(e){return (e.key&&e.key.length===1)?e.key.toLowerCase():(e.code&&e.code.startsWith('Key')?e.code.slice(3).toLowerCase():'');}
+const IS_WIN=(window.apprentice&&window.apprentice.platform==='win32')||/win/i.test(navigator.platform||'');
+if(IS_WIN){
+  const map={ '⌘':'Ctrl','⌥':'Alt','⌃':'Ctrl' };
+  KEYS.forEach(k=>{
+    k.keys=k.keys.map(x=>map[x]||x).filter((x,i,a)=>x!==a[i-1]);
+  });
+  KEYS[1].m=e=>e.ctrlKey&&e.altKey&&alpha(e)==='s';
+  KEYS[2].m=e=>e.ctrlKey&&e.altKey&&alpha(e)==='j';
+  KEYS[3].m=e=>e.ctrlKey&&e.shiftKey&&alpha(e)==='n';
+  KEYS[4].m=e=>e.ctrlKey&&e.shiftKey&&e.key==='ArrowRight';
+  KEYS[5].m=e=>e.ctrlKey&&e.shiftKey&&e.key==='ArrowLeft';
+  KEYS[7].m=e=>e.ctrlKey&&e.altKey&&alpha(e)==='v';
+  document.querySelectorAll('.kicker,.lead,.cap').forEach(el=>{
+    el.innerHTML=el.innerHTML.replaceAll('⌘⌥S','Ctrl+Alt+S').replaceAll('⌘⌥J','Ctrl+Alt+J');
+  });
+}
 const ring=$('#keyring');
 ring.innerHTML=KEYS.map((k,i)=>{
   const combo=k.keys.map((kk,j)=>`${j?'<span class="kplus">+</span>':''}<span class="kk">${kk}</span>`).join('')+(k.hold?'<span class="khold">hold</span>':'');

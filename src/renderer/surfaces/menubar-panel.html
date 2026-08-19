@@ -88,6 +88,7 @@ function sendMsg(o){const s=JSON.stringify(o);
   else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(s);}
 function ui(action,value){sendMsg(value?{type:'ui_action',action:action,value:value}:{type:'ui_action',action:action});}
 function open_(surface){sendMsg({type:'host_open',surface:surface});}
+const IS_WIN=(window.apprentice&&window.apprentice.platform==='win32')||/win/i.test(navigator.platform||'');
 
 // status word + hue per backend state (statusWord/statusHue in the Swift)
 const WORD={setup:'setup',paused:'paused',starting:'starting…',reconnecting:'reconnecting…',
@@ -113,9 +114,10 @@ function render(){
   if(S.allGranted){
     let h='';
     if(S.agentStopped)h+=wact('restart apprentice','the agent stopped',"ui('relaunch_agent')");
-    h+=`<div class="talk"><span class="t">hold</span><span class="kc">⌃</span><span class="kc">⌥</span><span class="t">to talk</span></div>`;
+    h+=`<div class="talk"><span class="t">hold</span><span class="kc">${IS_WIN?'Ctrl':'⌃'}</span><span class="kc">${IS_WIN?'Alt':'⌥'}</span><span class="t">to talk</span></div>`;
+    h+=wact('summon',IS_WIN?'Ctrl+Alt+S':'⌘⌥S',"open_('summon')");
     h+=wact('guide','how it works',"open_('guide')");
-    h+=wact("what i've learned",'⌘⌥J',"open_('inspector')");
+    h+=wact("what i've learned",IS_WIN?'Ctrl+Alt+J':'⌘⌥J',"open_('inspector')");
     bd.innerHTML=h;
   }else{
     let h=`<div class="note">${S.backend==='setup'
@@ -123,9 +125,11 @@ function render(){
       :'Some access was turned off — flip it back on to keep going.'}</div>`;
     h+='<div class="perms">';
     h+=prow('Microphone',S.perms.mic,'mic');
-    h+=prow('Accessibility',S.perms.accessibility,'accessibility');
-    h+=prow('Screen Recording',S.perms.screen,'screen');
-    if(S.perms.screen)h+=prow('Screen Content',S.perms.screenContent,'screenContent');
+    if(!IS_WIN){
+      h+=prow('Accessibility',S.perms.accessibility,'accessibility');
+      h+=prow('Screen Recording',S.perms.screen,'screen');
+      if(S.perms.screen)h+=prow('Screen Content',S.perms.screenContent,'screenContent');
+    }
     h+='</div>';
     bd.innerHTML=h;
   }

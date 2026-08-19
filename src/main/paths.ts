@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
@@ -20,6 +21,13 @@ export function dataDir(): string {
   }
   const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
   return join(xdg, 'Apprentice')
+}
+
+/** Window / tray icon. Packaged surfaces carry apprentice-mark.png. */
+export function appIcon(): string {
+  const packaged = join(process.resourcesPath || '', 'surfaces', 'apprentice-mark.png')
+  const dev = join(app.getAppPath(), 'src', 'renderer', 'surfaces', 'apprentice-mark.png')
+  return existsSync(packaged) ? packaged : dev
 }
 
 export function logDir(): string {

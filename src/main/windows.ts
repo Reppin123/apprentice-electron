@@ -1,7 +1,8 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { SurfaceRelay } from './relay'
 import { safeSend } from './relay'
+import { appIcon } from './paths'
 
 // Window manager — the Electron twin of WebSurfaceHost.Surface plus every
 // native window the Swift app had. Geometry is Electron screen coords
@@ -50,7 +51,8 @@ export const SURFACES: Record<string, SurfaceSpec> = {
   'call-history': { page: 'call-history.html', width: 560, height: 640, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, title: 'Past calls', level: 'normal' },
   'video-editor': { page: 'video-editor.html', width: 1440, height: 900, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, minWidth: 1000, minHeight: 600, title: 'Apprentice Video', level: 'normal' },
   'apv-editor': { page: 'apv-editor.html', width: 1280, height: 820, transparent: false, anchor: 'center', clickThrough: false, focusable: true, titled: true, minWidth: 900, minHeight: 600, title: 'Apprentice Editor', level: 'normal' },
-  audio: { page: 'audio.html', width: 0, height: 0, transparent: true, anchor: 'center', clickThrough: true, focusable: false, level: 'normal' }
+  // Non-zero size: Chromium on Windows will not initialize media in a 0×0 window.
+  audio: { page: 'audio.html', width: 16, height: 16, transparent: true, anchor: 'center', clickThrough: true, focusable: false, level: 'normal' }
 }
 
 export function surfacesDir(): string {
@@ -187,6 +189,7 @@ export class SurfaceManager {
         y = Math.round(wa.y + (wa.height - spec.height) / 2)
     }
 
+    const icon = nativeImage.createFromPath(appIcon())
     const win = new BrowserWindow({
       width: spec.width,
       height: spec.height,
@@ -203,6 +206,7 @@ export class SurfaceManager {
       fullscreenable: false,
       skipTaskbar: !spec.titled,
       focusable: spec.focusable,
+      icon: icon.isEmpty() ? undefined : icon,
       title: spec.title || 'Apprentice',
       titleBarStyle: spec.titled && process.platform === 'darwin' ? 'hiddenInset' : undefined,
       webPreferences: {

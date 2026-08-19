@@ -296,6 +296,7 @@ export class OverlayService {
         movable: false,
         skipTaskbar: true,
         focusable: false,
+        icon: join(surfacesDir(), 'apprentice-mark.png'),
         webPreferences: {
           preload: join(__dirname, '../preload/index.js'),
           contextIsolation: false,

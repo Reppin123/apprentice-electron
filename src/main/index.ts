@@ -1,4 +1,4 @@
-import { app, ipcMain, powerMonitor, shell, dialog, clipboard, BrowserWindow } from 'electron'
+import { app, ipcMain, powerMonitor, shell, dialog, clipboard, BrowserWindow, session, nativeImage } from 'electron'
 import { readdirSync, readFileSync, existsSync, writeFileSync } from 'fs'
 import { join, basename } from 'path'
 import { AgentBridge } from './bridge'
@@ -13,7 +13,7 @@ import { OverlayService } from './overlayService'
 import { ApvServer } from './apvServer'
 import { AuthGuard } from './auth'
 import { permState, requestPermission, revealSelfInFinder } from './permissions'
-import { dataDir, logDir } from './paths'
+import { dataDir, logDir, appIcon } from './paths'
 import { BridgeMessage } from '../shared/protocol'
 import { VoiceService } from './services/voice'
 
@@ -21,7 +21,32 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
+  // PTT is a global hotkey, not a gesture in the hidden audio window.
+  // Without this, Chromium leaves AudioContext suspended → no mic chunks.
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+  if (process.platform === 'win32') app.setAppUserModelId('com.apprentice.app')
   main()
+}
+
+/** Persistent taskbar button on Windows (tray-only apps land in the overflow). */
+function installWindowsTaskbar(onActivate: () => void): void {
+  const icon = nativeImage.createFromPath(appIcon())
+  const win = new BrowserWindow({
+    width: 1,
+    height: 1,
+    x: -32000,
+    y: -32000,
+    show: false,
+    frame: false,
+    skipTaskbar: false,
+    focusable: true,
+    transparent: true,
+    title: 'Apprentice',
+    icon: icon.isEmpty() ? undefined : icon
+  })
+  win.setSkipTaskbar(false)
+  win.showInactive()
+  win.on('focus', () => onActivate())
 }
 
 function main(): void {
@@ -47,16 +72,19 @@ function main(): void {
 
   const pushShellStatus = (): void => {
     const p = permState()
+    const allGranted =
+      process.platform === 'win32' ? p.mic : p.mic && p.accessibility && p.screen
     relay.pushToSurfaces({
       type: 'shell_status',
       backend: agentState,
+      platform: p.platform,
       permissions: {
         mic: p.mic,
         accessibility: p.accessibility,
         screen: p.screen,
         screenContent: p.screen
       },
-      allGranted: p.mic && p.accessibility && p.screen,
+      allGranted,
       agentStopped: agentState === 'stopped',
       voiceState: lastVoiceState
     })
@@ -110,6 +138,10 @@ function main(): void {
     if (msg.type === 'agent_focus_changed' || msg.type === 'agent_ready') {
       const slot = Number((msg as Record<string, unknown>).color_slot ?? 0)
       if (!Number.isNaN(slot)) overlay.setColorSlot(slot)
+    }
+    // Connect/disconnect rebuilds the agent's tool surface, same as set_model.
+    if (msg.type === 'connection_result' && msg.ok) {
+      setTimeout(() => bridge.forceReconnect(), 150)
     }
     if (msg.type === 'set_state') {
       lastVoiceState = String(msg.state || 'idle')
@@ -261,7 +293,10 @@ function main(): void {
         surfaces.hide('menubar')
         break
       case 'grant_permission':
-        requestPermission(String(value)).then(pushShellStatus)
+        requestPermission(String(value)).then(() => {
+          if (value === 'mic' || value === 'speech') voice?.requestMicAccess?.()
+          pushShellStatus()
+        })
         break
       case 'replay_onboarding':
         surfaces.show('onboarding')
@@ -281,7 +316,10 @@ function main(): void {
         break
       // onboarding
       case 'perm_request':
-        requestPermission(String(value)).then(() => pushPerms())
+        requestPermission(String(value)).then(() => {
+          if (value === 'mic' || value === 'speech') voice?.requestMicAccess?.()
+          pushPerms()
+        })
         break
       case 'onboarding_restart_app':
         // resume at the post-restart phase after the TCC quit-and-reopen
@@ -438,7 +476,15 @@ function main(): void {
   app.whenReady().then(async () => {
     if (process.platform === 'darwin') app.dock?.hide()
 
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'media' || permission === 'display-capture')
+    })
+    session.defaultSession.setPermissionCheckHandler(() => true)
+
+    app.on('second-instance', () => surfaces.show('summon'))
+
     installTray(surfaces)
+    if (process.platform === 'win32') installWindowsTaskbar(() => surfaces.show('summon'))
     overlay.start()
     overlay.setOrb({
       size: (settings.get('hueSize') as string) || 'regular',
@@ -448,7 +494,13 @@ function main(): void {
 
     // hidden audio window for playback + mic
     const audioWin = surfaces.show('audio')
-    audioWin.hide()
+    if (process.platform === 'win32') {
+      audioWin.setSkipTaskbar(true)
+      audioWin.setBounds({ x: -400, y: -400, width: 16, height: 16 })
+      audioWin.showInactive()
+    } else {
+      audioWin.hide()
+    }
     voice = new VoiceService({
       send: (m: BridgeMessage) => bridge.send(m),
       pushToSurfaces: (m: BridgeMessage) => {

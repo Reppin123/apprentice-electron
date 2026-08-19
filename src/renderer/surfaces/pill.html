@@ -57,6 +57,7 @@ function accentFor(s){return s==='speaking'||s==='milestone'?A.amber:s==='late'?
 const EYE_H={listening:13,working:4.5,milestone:12,late:7,stopped:2.5,speaking:6.5,done:6.5};
 const LIT=['listening','thinking','working','milestone','late','done'];
 const mark='apprentice-mark.png';
+const IS_WIN=(window.apprentice&&window.apprentice.platform==='win32')||/win/i.test(navigator.platform||'');
 
 // ---------- state ----------
 const P={ voice:'resting', taskState:'none',           // 'none'|working|milestone|late|stopped|done
@@ -82,7 +83,7 @@ function buildPill(s){
   pill.style.setProperty('--p-border', s==='milestone'?'rgba(245,209,138,.25)':'rgba(255,255,255,.085)');
   pill.classList.toggle('pop', s==='milestone'||s==='done');
   if(s==='resting'){
-    pill.innerHTML=`<img class="mark" src="${mark}" alt=""/><span class="ask">ask anything</span><span class="keycap">⌘⌥S</span>`;
+    pill.innerHTML=`<img class="mark" src="${mark}" alt=""/><span class="ask">ask anything</span><span class="keycap">${IS_WIN?'Ctrl+Alt+S':'⌘⌥S'}</span>`;
     pill.style.opacity=P.hover?1:0.55;
     return;
   }

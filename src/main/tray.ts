@@ -1,15 +1,17 @@
 import { Tray, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { surfacesDir, SurfaceManager } from './windows'
+import { appIcon } from './paths'
 
 // Menu-bar / system-tray brand mark. Click drops the companion panel under
 // the icon (320pt, 4pt gap), mirroring MenuBarPanelManager. Deliberately NOT
 // a template image — the mark stays coloured.
 
 export function installTray(surfaces: SurfaceManager): Tray {
-  const img = nativeImage
-    .createFromPath(join(surfacesDir(), 'apprentice-mark.png'))
-    .resize({ width: 18, height: 18 })
+  const src = join(surfacesDir(), 'apprentice-mark.png')
+  let img = nativeImage.createFromPath(src)
+  if (img.isEmpty()) img = nativeImage.createFromPath(appIcon())
+  img = img.resize({ width: 18, height: 18 })
   const tray = new Tray(img)
   tray.setToolTip('Apprentice')
   tray.on('click', (_e, bounds) => {

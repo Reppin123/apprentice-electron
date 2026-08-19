@@ -28,10 +28,14 @@ export function permState(): PermState {
       cliToolsPresent: true
     }
   }
+  const micGranted =
+    process.platform === 'win32'
+      ? systemPreferences.getMediaAccessStatus('microphone') === 'granted'
+      : true
   return {
     platform: process.platform,
-    mic: true,
-    speech: true,
+    mic: micGranted,
+    speech: micGranted,
     inputMonitoring: true,
     accessibility: true,
     screen: true,
@@ -41,6 +45,11 @@ export function permState(): PermState {
 }
 
 export async function requestPermission(kind: string): Promise<void> {
+  if (process.platform === 'win32' && (kind === 'mic' || kind === 'speech')) {
+    // Windows has no askForMediaAccess — Chromium prompts on getUserMedia.
+    // The caller (index.ts) triggers that via VoiceService.requestMicAccess().
+    return
+  }
   if (process.platform !== 'darwin') return
   switch (kind) {
     case 'mic':

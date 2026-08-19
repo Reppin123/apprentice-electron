@@ -1,9 +1,10 @@
 # Full Windows build → downloadable installer.
 #
-# Runs entirely on a real Windows runner (Nuitka can't cross-compile from mac):
+# Runs entirely on a real Windows runner (the agent must be frozen on Windows):
 #   1. checks out this shell repo + the sibling apprentice-agent repo
-#   2. freezes the Python agent to a Windows .exe (Nuitka) via the agent's
-#      scripts/build_agent_windows.ps1
+#   2. freezes the Python agent to a Windows .exe (PyInstaller — fast, ~3-5 min,
+#      no IP protection) via scripts/build_agent_windows_pyinstaller.ps1. Swap to
+#      the Nuitka script (build_agent_windows.ps1) for a protected prod release.
 #   3. drops the frozen agent into resources/agent.dist/ (electron-builder
 #      bundles it as extraResources → the packaged app spawns it)
 #   4. electron-vite build + electron-builder --win → dist/*.exe (NSIS)
@@ -29,7 +30,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 40
     permissions:
       contents: write # needed to create the Release
     steps:
@@ -57,13 +58,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Freeze the Python agent (Nuitka → apprentice-agent.exe)
+      - name: Freeze the Python agent (PyInstaller → apprentice-agent.exe)
         working-directory: apprentice-agent
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install nuitka
-          pwsh -NoProfile -File scripts/build_agent_windows.ps1
+          pip install pyinstaller
+          pwsh -NoProfile -File scripts/build_agent_windows_pyinstaller.ps1
 
       - name: Bundle the frozen agent into the shell
         shell: pwsh

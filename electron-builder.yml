@@ -1,5 +1,9 @@
 appId: com.apprentice.app
 productName: Apprentice
+# uiohook-napi is our only native dep and ships prebuilt N-API binaries
+# (ABI-stable across Node/Electron), so skip the from-source rebuild that
+# would otherwise require a full Visual Studio C++ toolchain on the runner.
+npmRebuild: false
 directories:
   buildResources: resources
   output: dist

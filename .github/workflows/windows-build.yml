@@ -63,7 +63,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install pyinstaller
+          # typer: --collect-all mcp imports mcp.cli, which needs typer at
+          # freeze time even though the frozen agent never runs the mcp CLI.
+          pip install pyinstaller typer
           pwsh -NoProfile -File scripts/build_agent_windows_pyinstaller.ps1
 
       - name: Bundle the frozen agent into the shell

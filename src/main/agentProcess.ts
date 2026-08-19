@@ -96,6 +96,12 @@ export class AgentProcess {
     env.CLAUDE_SECURESTORAGE_CONFIG_DIR = claudeConfigDir()
     env.PYTHONUTF8 = '1'
     env.PYTHONIOENCODING = 'utf-8:backslashreplace'
+    // Windows routes the LLM through the owned harness seam: Claude models run
+    // the bundled Claude SDK/CLI path (funded + authed), everything else the
+    // HTTP providers. An explicit user-set value still wins (see the loop below).
+    if (process.platform === 'win32' && !process.env.APPRENTICE_HARNESS) {
+      env.APPRENTICE_HARNESS = '1'
+    }
     // Pass-through knobs the user may have set for a dev run.
     for (const k of [
       'APPRENTICE_HARNESS',

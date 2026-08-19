@@ -1,0 +1,100 @@
+# Full Windows build → downloadable installer.
+#
+# Runs entirely on a real Windows runner (Nuitka can't cross-compile from mac):
+#   1. checks out this shell repo + the sibling apprentice-agent repo
+#   2. freezes the Python agent to a Windows .exe (Nuitka) via the agent's
+#      scripts/build_agent_windows.ps1
+#   3. drops the frozen agent into resources/agent.dist/ (electron-builder
+#      bundles it as extraResources → the packaged app spawns it)
+#   4. electron-vite build + electron-builder --win → dist/*.exe (NSIS)
+#   5. uploads the installer as a build artifact AND (on manual dispatch)
+#      publishes it as a GitHub Release so you get a public download link.
+#
+# Trigger from the Actions tab (workflow_dispatch) or by pushing a v* tag.
+name: windows-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent_ref:
+        description: "apprentice-agent git ref to freeze"
+        default: master
+      release:
+        description: "Publish the installer as a GitHub Release"
+        type: boolean
+        default: true
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # needed to create the Release
+    steps:
+      - name: Checkout shell (apprentice-electron)
+        uses: actions/checkout@v4
+        with:
+          path: apprentice-electron
+
+      - name: Checkout agent (apprentice-agent)
+        uses: actions/checkout@v4
+        with:
+          repository: Reppin123/apprentice-agent
+          ref: ${{ github.event.inputs.agent_ref || 'master' }}
+          path: apprentice-agent
+          # For a PRIVATE agent repo, add a PAT with repo scope as the
+          # AGENT_REPO_TOKEN secret; falls back to the run token otherwise.
+          token: ${{ secrets.AGENT_REPO_TOKEN || github.token }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Freeze the Python agent (Nuitka → apprentice-agent.exe)
+        working-directory: apprentice-agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install nuitka
+          pwsh -NoProfile -File scripts/build_agent_windows.ps1
+
+      - name: Bundle the frozen agent into the shell
+        shell: pwsh
+        run: |
+          $dst = "apprentice-electron/resources/agent.dist"
+          Remove-Item -Recurse -Force $dst -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Recurse -Force "apprentice-agent/build/apprentice-agent.dist/*" $dst
+          Write-Host "agent.dist contents:"; Get-ChildItem $dst | Select-Object Name
+
+      - name: Install shell deps + package Windows installer
+        working-directory: apprentice-electron
+        run: |
+          npm ci
+          npm run package:win
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apprentice-windows-installer
+          path: |
+            apprentice-electron/dist/*.exe
+            apprentice-electron/dist/*.blockmap
+          if-no-files-found: error
+
+      - name: Publish Release (public download link)
+        if: ${{ github.event_name == 'push' || github.event.inputs.release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('win-{0}', github.run_number) }}
+          name: Apprentice for Windows (build ${{ github.run_number }})
+          files: |
+            apprentice-electron/dist/*.exe
+          fail_on_unmatched_files: true

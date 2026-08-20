@@ -1,0 +1,86 @@
+# FAST Windows test build — PyInstaller freeze (~3-5 min) instead of Nuitka
+# (~40min-3h+). NOT for real distribution: PyInstaller ships recoverable
+# plaintext .pyc, no IP protection, and this workflow deliberately never
+# publishes a GitHub Release — build artifact only, for the user to grab and
+# try locally while the real windows-build.yml (Nuitka, prod) runs in
+# parallel. See scripts/build_agent_windows_pyinstaller.ps1 in apprentice-agent
+# and SHIPPING.md's Windows section for why the two are kept separate.
+#
+# Trigger from the Actions tab (workflow_dispatch) only — no tag trigger, so
+# it can never accidentally fire on a release push the way windows-build.yml does.
+name: windows-build-fast
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent_ref:
+        description: "apprentice-agent git ref to freeze"
+        default: master
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout shell (apprentice-electron)
+        uses: actions/checkout@v4
+        with:
+          path: apprentice-electron
+
+      - name: Checkout agent (apprentice-agent)
+        uses: actions/checkout@v4
+        with:
+          repository: Reppin123/apprentice-agent
+          ref: ${{ github.event.inputs.agent_ref || 'master' }}
+          path: apprentice-agent
+          token: ${{ secrets.AGENT_REPO_TOKEN || github.token }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Freeze the Python agent (PyInstaller → apprentice-agent.exe, FAST/test-only)
+        working-directory: apprentice-agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+          pwsh -NoProfile -File scripts/build_agent_windows_pyinstaller.ps1
+
+      - name: Verify this is the PyInstaller (not Nuitka) manifest
+        shell: pwsh
+        run: |
+          $manifest = "apprentice-agent/build/apprentice-agent.dist/.build-manifest"
+          Get-Content $manifest
+          if (-not (Select-String -Path $manifest -Pattern "builder=pyinstaller" -Quiet)) {
+            throw "expected builder=pyinstaller in .build-manifest, got something else"
+          }
+
+      - name: Bundle the frozen agent into the shell
+        shell: pwsh
+        run: |
+          $dst = "apprentice-electron/resources/agent.dist"
+          Remove-Item -Recurse -Force $dst -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Recurse -Force "apprentice-agent/build/apprentice-agent.dist/*" $dst
+          Write-Host "agent.dist contents:"; Get-ChildItem $dst | Select-Object Name
+
+      - name: Install shell deps + package Windows installer
+        working-directory: apprentice-electron
+        run: |
+          npm ci
+          npm run package:win
+
+      - name: Upload installer artifact (TEST BUILD — not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: apprentice-windows-TEST-pyinstaller
+          path: |
+            apprentice-electron/dist/*.exe
+            apprentice-electron/dist/*.blockmap
+          if-no-files-found: error

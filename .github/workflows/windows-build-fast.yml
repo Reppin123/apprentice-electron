@@ -1,10 +1,11 @@
 # FAST Windows test build — PyInstaller freeze (~3-5 min) instead of Nuitka
 # (~40min-3h+). NOT for real distribution: PyInstaller ships recoverable
-# plaintext .pyc, no IP protection, and this workflow deliberately never
-# publishes a GitHub Release — build artifact only, for the user to grab and
-# try locally while the real windows-build.yml (Nuitka, prod) runs in
-# parallel. See scripts/build_agent_windows_pyinstaller.ps1 in apprentice-agent
-# and SHIPPING.md's Windows section for why the two are kept separate.
+# plaintext .pyc, no IP protection. Publishes a GitHub Release (direct
+# click-to-download link, same mechanism as the Mac Sparkle releases) but
+# tagged/titled unmistakably as a TEST build on its own win-fast-N tag line,
+# separate from windows-build.yml's win-N prod tags, so the two can never be
+# confused. See scripts/build_agent_windows_pyinstaller.ps1 in apprentice-agent
+# and SHIPPING.md's Windows section for why the two build paths are kept separate.
 #
 # Trigger from the Actions tab (workflow_dispatch) only — no tag trigger, so
 # it can never accidentally fire on a release push the way windows-build.yml does.
@@ -21,6 +22,8 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: write # needed to create the Release
     steps:
       - name: Checkout shell (apprentice-electron)
         uses: actions/checkout@v4
@@ -78,7 +81,7 @@ jobs:
           npm ci
           npm run package:win
 
-      - name: Upload installer artifact (TEST BUILD — not a public release)
+      - name: Upload installer artifact (build-log backup — the Release below is the real download)
         uses: actions/upload-artifact@v4
         with:
           name: apprentice-windows-TEST-pyinstaller
@@ -86,3 +89,18 @@ jobs:
             apprentice-electron/dist/*.exe
             apprentice-electron/dist/*.blockmap
           if-no-files-found: error
+
+      - name: Publish TEST Release (direct click-to-download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: win-fast-${{ github.run_number }}
+          name: "Apprentice for Windows — TEST build ${{ github.run_number }} (PyInstaller, unsigned, no IP protection)"
+          body: |
+            ⚠️ Fast test build, NOT the production release. Frozen with
+            PyInstaller (not Nuitka) for speed — ships recoverable plaintext
+            bytecode and is not code-signed. For quick local testing only.
+            The real signed/notarized release comes from the `windows-build`
+            workflow (win-N tags).
+          prerelease: true
+          files: |
+            apprentice-electron/dist/*.exe

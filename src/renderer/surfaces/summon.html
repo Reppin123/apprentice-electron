@@ -639,10 +639,11 @@ function renderTuneConnections(p){
 function glyph(name,size,connected){
   return `<span class="glyph ${connected?'conn':''}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.5)}px">${esc(String(name||'?').slice(0,1))}</span>`;}
 function connTrailing(c){
-  if(c.connecting)return `<span class="spin"></span><span class="s">connecting…</span>`;
+  if(c.connecting)return `<span class="spin"></span><span class="s">${c.connected?'disconnecting…':'connecting…'}</span>`;
   if(c.connected){
     let st;
-    if(!c.live)st=`<span class="s warn">connected · tools not loaded</span>`;
+    if(c.lastError)st=`<span class="s" style="color:var(--red)">disconnect failed</span>`;
+    else if(!c.live)st=`<span class="s warn">connected · tools not loaded</span>`;
     else if(c.toolCount>0)st=`<span class="s">✓ ${c.toolCount} tools</span>`;
     else st=`<span class="s">✓ connected</span>`;
     return `${st}<span class="act disbtn" style="color:var(--faint)">disconnect</span>`;
@@ -679,7 +680,7 @@ function renderTools(){
 // in-panel consent / connected detail — mirrors SummonConnectionsView.consentDetail
 function renderConsent(c){
   const title=c.connected?`${c.name} connected`:`connect ${c.name}`;
-  const sub=c.connected?`${c.toolCount||0} tools now available on every model`
+  const sub=c.connected?(c.toolCount>0?`${c.toolCount} tools now available on every model`:'available on every model')
     :`so apprentice can work in your ${c.name} — on any model.`;
   let h=`<div style="display:flex;align-items:center;gap:13px;padding:6px 24px 0">
     ${glyph(c.name,42,c.connected)}
@@ -727,7 +728,7 @@ function wireConsent(p,c){
 }
 function disconnectConn(id){
   const c=SUM.conns.find(x=>x.id===id);if(!c)return;
-  c.connected=false;c.live=false;c.toolCount=null;c.connecting=false;   // optimistic
+  c.connecting=true;c.lastError=null;
   if(WIRED)sendMsg({type:'connection_disconnect',connection_id:id});
   if(SUM.route==='tools')renderTools();
 }
@@ -936,15 +937,16 @@ AGENT['connections_state']=function(m){
   SUM.conns=(m.connections||[]).map(c=>({
     id:c.id,name:c.display_name||c.id,icon:c.icon||'',auth:c.auth||'oauth',scopes:c.scopes||[],
     connected:!!c.connected,live:!!c.live,toolCount:(c.tool_count==null?null:c.tool_count),
-    connecting:inflight.has(c.id)&&!c.connected,lastError:null}));
+    connecting:inflight.has(c.id),lastError:null}));
   if(SUM.route==='tools')renderTools();};
 AGENT['connection_result']=function(m){
   const c=SUM.conns.find(x=>x.id===m.connection_id);if(!c)return;
   c.connecting=false;
   if(m.disconnected){c.connected=false;c.live=false;c.toolCount=null;c.lastError=null;}
-  else{c.connected=!!m.ok;c.live=!!m.ok;
+  else if(m.ok){c.connected=true;c.live=true;
     if(m.tool_count!=null)c.toolCount=m.tool_count;
-    c.lastError=m.ok?null:(m.error||'couldn’t connect');}
+    c.lastError=null;}
+  else{c.lastError=m.error||(c.connected?'couldn’t disconnect':'couldn’t connect');}
   if(SUM.route==='tools')renderTools();};
 
 // lightweight dropdown menu anchored under an element

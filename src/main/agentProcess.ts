@@ -109,9 +109,20 @@ export class AgentProcess {
       'APPRENTICE_PIPELINE',
       'APPRENTICE_FILE_DISCOVERY',
       'APPRENTICE_USER_NAME',
-      'APPRENTICE_WS_PORT'
+      'APPRENTICE_WS_PORT',
+      'APPRENTICE_CONNECTIONS_BACKEND',
+      'APPRENTICE_COMPOSIO_BROKER_URL',
+      'APPRENTICE_COMPOSIO_APP_GATE'
     ]) {
       if (process.env[k]) env[k] = process.env[k]
+    }
+    if (!env.APPRENTICE_COMPOSIO_BROKER_URL) {
+      env.APPRENTICE_COMPOSIO_BROKER_URL =
+        'https://apprentice-composio-broker.akshitbansal1313.workers.dev'
+    }
+    if (!env.APPRENTICE_COMPOSIO_APP_GATE) {
+      env.APPRENTICE_COMPOSIO_APP_GATE =
+        '99e18ea09e8ad33506f267037a96161b0feacb2f876fa21238968745b5ecc3bb'
     }
     return env
   }

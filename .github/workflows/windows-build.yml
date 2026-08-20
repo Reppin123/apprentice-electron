@@ -29,7 +29,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       contents: write # needed to create the Release
     steps:
